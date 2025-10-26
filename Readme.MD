@@ -1,7 +1,3 @@
-Voici le **README.md** prêt à inclure dans ton dossier `ia-portable/` :
-
----
-
 ````markdown
 # 🧠 IA Shell Assistant — Portable Edition
 
@@ -24,7 +20,7 @@ Conçu pour être **rapide, autonome et portable**, il s’installe en une seule
 
 ### 1. Cloner ou copier le dossier
 ```bash
-git clone https://github.com/neo-sysadmin/ia-portable.git
+git clone https://github.com/neosoda/ia-portable.git
 cd ia-portable
 ````
 
@@ -134,3 +130,4 @@ ia-portable/
 **Licence :** MIT
 
 ```
+
