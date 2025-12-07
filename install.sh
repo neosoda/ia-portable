@@ -5,10 +5,13 @@
 # =====================================================
 
 set -euo pipefail
+
 INSTALL_DIR="/usr/local/bin"
 SCRIPT_NAME="ia"
 SRC_DIR="$(dirname "$(realpath "$0")")"
 SCRIPT_PATH="${INSTALL_DIR}/${SCRIPT_NAME}"
+BASH_COMPLETION_DIR="/usr/share/bash-completion/completions"
+ZSH_COMPLETION_DIR="/usr/share/zsh/site-functions"
 
 echo "=== Installation de l’assistant IA ==="
 
@@ -27,6 +30,21 @@ apt-get install -y curl jq >/dev/null
 echo "→ Installation dans ${INSTALL_DIR}..."
 cp "${SRC_DIR}/ia.sh" "$SCRIPT_PATH"
 chmod +x "$SCRIPT_PATH"
+
+# Copie des complétions si possible
+if [[ -d "$BASH_COMPLETION_DIR" ]]; then
+  cp "${SRC_DIR}/completions/ia.bash" "${BASH_COMPLETION_DIR}/ia"
+  echo "→ Auto-complétion bash installée."
+else
+  echo "ℹ️  Dossier bash-completion introuvable, installe manuellement completions/ia.bash."
+fi
+
+if [[ -d "$ZSH_COMPLETION_DIR" ]]; then
+  cp "${SRC_DIR}/completions/_ia" "$ZSH_COMPLETION_DIR/"
+  echo "→ Auto-complétion zsh installée."
+else
+  echo "ℹ️  Dossier zsh completions introuvable, installe manuellement completions/_ia."
+fi
 
 # Crée un alias global (optionnel)
 if ! grep -q "alias ia=" /etc/bash.bashrc; then

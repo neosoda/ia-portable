@@ -1,0 +1,28 @@
+#compdef ia
+# Zsh completion for ia command.
+
+local -a opts prompts
+opts=(-q --quiet -n --notify -h --help)
+
+if [[ $words[(I)-n] -gt 0 || $words[(I)--notify] -gt 0 ]]; then
+  _values 'seconds' 5 10 30 60 120
+  return
+fi
+
+local cache_file="${XDG_CACHE_HOME:-$HOME/.cache}/ia/history.jsonl"
+if [[ -f $cache_file ]]; then
+  prompts=(${(f)"$(jq -r '.prompt' "$cache_file" 2>/dev/null | sort -u)"})
+fi
+
+_arguments \
+  '(-q --quiet)'{-q,--quiet}'[Mode réponse courte]' \
+  '(-n --notify)'{-n+,--notify=}'[Notifier si la réponse dépasse N secondes]:seconds:' \
+  '(-h --help)'{-h,--help}'[Afficher l aide]' \
+  '*:question:->question'
+
+case $state in
+  question)
+    _describe 'questions en cache' prompts
+    _wanted options expl 'options' compadd -a opts
+  ;;
+esac
