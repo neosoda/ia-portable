@@ -1,7 +1,6 @@
-````markdown
 # 🧠 IA Shell Assistant — Portable Edition
 
-Assistant en ligne de commande pour administrateurs Linux, utilisant l’API **Mistral AI** - https://docs.mistral.ai/api.  
+Assistant en ligne de commande pour administrateurs Linux, utilisant l’API **Mistral AI** - https://docs.mistral.ai/api.
 Conçu pour être **rapide, autonome et portable**, il s’installe en une seule commande et fonctionne sur tout serveur Debian/Ubuntu.
 
 ---
@@ -22,7 +21,7 @@ Conçu pour être **rapide, autonome et portable**, il s’installe en une seule
 ```bash
 git clone https://github.com/neosoda/ia-portable.git
 cd ia-portable
-````
+```
 
 ### 2. Lancer l’installeur
 
@@ -102,7 +101,7 @@ Le script appelle directement l’API Mistral :
 ia-portable/
 ├── install.sh         # installe le script sur n’importe quel serveur
 ├── ia.sh              # script principal IA Shell Assistant
-└── README.md          # ce fichier
+└── Readme.MD          # ce fichier
 ```
 
 ---
@@ -125,9 +124,6 @@ ia-portable/
 
 ## 🧩 Auteurs & Crédits
 
-**Auteur :** Neosoda
-**Version :** v1.1 — 2025-10-26
+**Auteur :** Neosoda  
+**Version :** v1.1 — 2025-10-26  
 **Licence :** MIT
-
-```
-
