@@ -74,6 +74,13 @@ ia "nettoie le cache apt"
 ia "crée un utilisateur dev avec sudo"
 ```
 
+Options supplémentaires :
+
+```bash
+ia --local-only "sans réseau, quelles options basiques existe-t-il ?"
+ia --log-path /var/log/ia-assistant.log "commande pour vérifier nginx"
+```
+
 ---
 
 ## 🧰 Désinstallation
@@ -118,8 +125,28 @@ ia-portable/
 ## 🔒 Sécurité
 
 * La clé API est stockée localement dans `/etc/profile.d/ia.sh` (non chiffrée)
-* Le script ne conserve **aucune donnée utilisateur**
 * Toutes les requêtes passent par HTTPS
+
+---
+
+## 📝 Journalisation & confidentialité
+
+Le script peut consigner localement les interactions pour audit :
+
+* **Données collectées** : question posée (prompt) et commandes suggérées par l’IA.
+* **Emplacement par défaut** : `~/.local/share/ia/ia.log`, modifiable via `IA_LOG_PATH` ou l’option `--log-path <chemin>`.
+* **Purge** : `> ~/.local/share/ia/ia.log` pour vider le fichier ou suppression pure et simple.
+* **Rotation** : ajout d’une règle `logrotate` classique, par exemple :
+  ```
+  /home/<user>/.local/share/ia/ia.log {
+      weekly
+      rotate 4
+      compress
+      missingok
+      notifempty
+  }
+  ```
+* **Mode hors ligne** : `--local-only` bloque toute requête réseau et signale les limitations directement dans la réponse.
 
 ---
 
