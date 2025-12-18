@@ -50,7 +50,9 @@ export MISTRAL_API_KEY="ta_cle_api"
 Pour la rendre permanente :
 
 ```bash
-echo "export MISTRAL_API_KEY='ta_cle_api'" | sudo tee /etc/profile.d/ia.sh
+sudo tee /etc/profile.d/ia.sh >/dev/null <<'EOF'
+export MISTRAL_API_KEY="ta_cle_api"
+EOF
 ```
 
 ---
