@@ -3,34 +3,138 @@
 
 set -euo pipefail
 
+# Charger la configuration sécurisée si elle existe
+if [[ -f "/usr/local/etc/ia.conf" ]]; then
+  source "/usr/local/etc/ia.conf"
+fi
+
+# Charger la configuration sécurisée si elle existe
+if [[ -f "/usr/local/etc/ia.conf" ]]; then
+  source "/usr/local/etc/ia.conf"
+fi
+
+# ================= Configuration =================
 API_KEY="${MISTRAL_API_KEY:-}"
-MODEL="mistral-small-latest"
-PROMPT="$*"
+API_URL="${MISTRAL_API_URL:-https://api.mistral.ai/v1/chat/completions}"
+MODEL="${MISTRAL_MODEL:-mistral-small-latest}"
 
-if [[ -z "$API_KEY" ]]; then
-  echo "❌ Clé API manquante. Exporte-la via : export MISTRAL_API_KEY='clé'" >&2
+# ================= Gestion des Arguments & Pipe =================
+RUN_MODE=false
+PROMPT=""
+PIPE_CONTENT=""
+
+# Détection de l'entrée standard (Pipe)
+if [[ ! -t 0 ]]; then
+  # On lit stdin (limité à 2000 caractères pour ne pas exploser le token limit)
+  PIPE_CONTENT=$(timeout 1 cat | head -c 2000)
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -x|--run)
+      RUN_MODE=true
+      shift
+      ;;
+    *)
+      if [[ -z "$PROMPT" ]]; then
+        PROMPT="$1"
+      else
+        PROMPT="$PROMPT $1"
+      fi
+      shift
+      ;;
+  esac
+done
+
+if [[ -z "$PROMPT" && -z "$PIPE_CONTENT" ]]; then
+  echo "Usage : ia [-x|--run] \"ta question\"" >&2
+  echo "Usage : cat fichier | ia \"analyse ceci\"" >&2
   exit 1
 fi
 
-if [[ -z "$PROMPT" ]]; then
-  echo "Usage : ia \"ta question\"" >&2
+if [[ -z "$API_KEY" && "$API_URL" == *"mistral.ai"* ]]; then
+  echo "❌ Clé API manquante pour Mistral Cloud." >&2
+  echo "   Configure-la dans /usr/local/etc/ia.conf ou exporte MISTRAL_API_KEY." >&2
   exit 1
 fi
 
-RESPONSE=$(curl -s https://api.mistral.ai/v1/chat/completions \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"model\": \"$MODEL\",
-    \"messages\": [
-      {\"role\": \"system\", \"content\": \"Tu es un assistant Linux expert. Donne uniquement des commandes bash exécutables, sans explications.\"},
-      {\"role\": \"user\", \"content\": \"$PROMPT\"}
-    ]
-  }" | jq -r '.choices[0].message.content')
+# ================= Smart Context =================
+OS_INFO="Inconnu"
+[[ -f /etc/os-release ]] && OS_INFO=$(grep -E '^(PRETTY_NAME|NAME)=' /etc/os-release | head -1 | cut -d= -f2 | tr -d '"')
+USER_ID=$(id -u)
+CONTEXT_INFO="OS: $OS_INFO | UID: $USER_ID (0=root)"
+
+SYSTEM_PROMPT="Tu es un assistant Linux expert.
+Contexte technique : $CONTEXT_INFO.
+Règle absolue : Donne UNIQUEMENT une ligne de commande Bash prête à l'emploi.
+Pas de balises markdown, pas d'explications, pas de backticks. Juste la commande brute."
+
+FINAL_PROMPT="$PROMPT"
+if [[ -n "$PIPE_CONTENT" ]]; then
+  FINAL_PROMPT="$PROMPT\n\n--- INPUT DATA ---\n$PIPE_CONTENT"
+fi
+
+# ================= Appel API (Génération) =================
+call_api() {
+  local sys="$1"
+  local usr="$2"
+  
+  local payload=$(jq -n \
+    --arg model "$MODEL" \
+    --arg sys "$sys" \
+    --arg content "$usr" \
+    '{
+      model: $model,
+      messages: [
+        {role: "system", content: $sys},
+        {role: "user", content: $content}
+      ]
+    }')
+
+  curl -s -f "$API_URL" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "$payload" | jq -r '.choices[0].message.content // empty'
+}
+
+RESPONSE=$(call_api "$SYSTEM_PROMPT" "$FINAL_PROMPT")
 
 if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
-  echo "❌ Impossible de récupérer une commande. Vérifie ta connexion ou ta clé API." >&2
+  echo "❌ Erreur : Réponse vide de l'IA." >&2
   exit 1
 fi
 
-echo -e "$RESPONSE"
+# Nettoyage
+CMD_CLEAN=$(echo "$RESPONSE" | sed 's/^```bash//;s/^```//;s/```$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+# ================= Mode Interactif & Explain =================
+if [[ "$RUN_MODE" == "true" ]]; then
+  while true; do
+    echo -e "\n💻 \033[1;36mCommande proposée :\033[0m"
+    echo -e "   $CMD_CLEAN"
+    echo -e ""
+    read -rp "⚡ Exécuter ? [o/N/?] (?=expliquer) " confirm
+
+    case "$confirm" in
+      [oO]|[oO][uU][iI])
+        echo -e "\n🚀 Exécution..."
+        eval "$CMD_CLEAN"
+        break
+        ;;
+      "?")
+        echo -e "\n🤔 Analyse en cours..."
+        EXPLAIN_SYS="Tu es un expert pédagogique. Explique brièvement (2 phrases max) ce que fait cette commande Bash. Sois précis sur les risques."
+        EXPLAIN_RESP=$(call_api "$EXPLAIN_SYS" "Explique cette commande : $CMD_CLEAN")
+        echo -e "\033[1;33m$EXPLAIN_RESP\033[0m"
+        # On boucle pour redemander confirmation après explication
+        ;;
+      *)
+        echo "🚫 Annulé."
+        break
+        ;;
+    esac
+  done
+else
+  # Mode standard
+  echo "$CMD_CLEAN"
+fi

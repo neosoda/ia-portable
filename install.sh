@@ -10,7 +10,8 @@ INSTALL_DIR="/usr/local/bin"
 SCRIPT_NAME="ia"
 SRC_DIR="$(dirname "$(realpath "$0")")"
 SCRIPT_PATH="${INSTALL_DIR}/${SCRIPT_NAME}"
-PROFILE_FILE="/etc/profile.d/ia.sh"
+SCRIPT_PATH="${INSTALL_DIR}/${SCRIPT_NAME}"
+CONFIG_FILE="/usr/local/etc/ia.conf"
 
 main() {
   echo "=== Installation de l’assistant IA ==="
@@ -34,8 +35,16 @@ require_root() {
 
 install_dependencies() {
   echo "→ Vérification des dépendances..."
-  apt-get update -qq
-  apt-get install -y curl jq >/dev/null
+  if command -v apt-get >/dev/null; then
+    apt-get update -qq
+    apt-get install -y curl jq >/dev/null
+  elif command -v dnf >/dev/null; then
+    dnf install -y curl jq >/dev/null
+  elif command -v yum >/dev/null; then
+    yum install -y curl jq >/dev/null
+  else
+    echo "⚠️  Gestionnaire de paquets inconnu. Assurez-vous d'avoir 'curl' et 'jq' installés manuellement."
+  fi
 }
 
 install_script() {
@@ -50,12 +59,20 @@ ensure_alias() {
 }
 
 ensure_api_key() {
+  # Si la clé n'est pas déjà dans l'environnement, on vérifie le fichier de conf
+  if [[ -f "$CONFIG_FILE" ]]; then
+    source "$CONFIG_FILE"
+  fi
+
   if [[ -z "${MISTRAL_API_KEY:-}" ]]; then
     read -rp "Entre ta clé API Mistral : " key
     if [[ -n "$key" ]]; then
-      echo "export MISTRAL_API_KEY='${key}'" | tee "$PROFILE_FILE" >/dev/null
+      mkdir -p "$(dirname "$CONFIG_FILE")"
+      echo "export MISTRAL_API_KEY='${key}'" > "$CONFIG_FILE"
+      chmod 600 "$CONFIG_FILE"
+      echo "🔒 Clé stockée de manière sécurisée dans $CONFIG_FILE"
     else
-      echo "⚠️  Clé API non définie. Pense à exporter MISTRAL_API_KEY avant utilisation." >&2
+      echo "⚠️  Clé API non définie. Pense à configurer MISTRAL_API_KEY manuellement." >&2
     fi
   fi
 }

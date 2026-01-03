@@ -7,7 +7,9 @@ Conçu pour être **rapide, autonome et portable**, il s’installe en une seule
 
 ## 🚀 Fonctionnalités
 
-- ⚙️ **Commandes Linux intelligentes** générées par IA (Mistral)
+- ⚙️ **Commandes Linux intelligentes** générées par IA
+- 🔌 **Support des Pipes** : Analyse de logs, refactoring de code...
+- 🧠 **Mode Explain** : Explique les commandes dangereuses avant exécution
 - 🔒 Aucun service externe permanent requis
 - 📦 Installation en local, sans dépendances complexes
 - 🔁 Fonctionne aussi sur serveurs distants via SSH
@@ -40,39 +42,61 @@ L’installeur :
 
 ## 🔑 Configuration
 
-Lors de l’installation, tu peux entrer ta clé API Mistral (commence par `op9k...`).
-Sinon, tu peux la définir manuellement plus tard :
+Lors de l’installation, tu peux entrer ta clé API Mistral.
+Cela créera un fichier de configuration sécurisé (lecture root uniquement) :
+
+```bash
+/usr/local/etc/ia.conf
+```
+
+Contenu du fichier :
 
 ```bash
 export MISTRAL_API_KEY="ta_cle_api"
+# Optionnel : changer le modèle 
+# export MISTRAL_MODEL="mistral-large-latest"
+
+# Optionnel : utiliser un backend local (Ollama, LocalAI)
+# export MISTRAL_API_URL="http://localhost:11434/v1/chat/completions"
+# export MISTRAL_MODEL="llama3"
 ```
 
-Pour la rendre permanente :
-
-```bash
-sudo tee /etc/profile.d/ia.sh >/dev/null <<'EOF'
-export MISTRAL_API_KEY="ta_cle_api"
-EOF
-```
+Pour modifier la configuration, édite simplement ce fichier avec `sudo`.
 
 ---
 
 ## 💬 Utilisation
 
-Simple et rapide :
+### Mode Standard (Sécurisé)
+Affiche simplement la commande suggérée par l'IA.
 
 ```bash
 ia "affiche les connexions actives SSH"
+# Résultat : netstat -tnpa | grep 'ssh'
 ```
 
-L’assistant renverra uniquement les **commandes bash** exécutables, sans texte inutile.
-
-Exemples :
+### Mode Interactif & Explication
+Utilise le flag `-x` pour exécuter ou **comprendre** une commande.
 
 ```bash
-ia "affiche les ports ouverts"
-ia "nettoie le cache apt"
-ia "crée un utilisateur dev avec sudo"
+ia -x "supprime les fichiers tmp vieux de 7 jours"
+```
+Le script te proposera :
+```text
+Commande proposée : find /tmp -type f -mtime +7 -delete
+⚡ Exécuter ? [o/N/?] (?=expliquer)
+```
+Si tu tapes `?`, l'IA t'expliquera la commande en détail avant de te redemander confirmation.
+
+### Analyse de contenu (Pipes)
+Tu peux envoyer des logs ou du code à l'IA via un pipe `|`.
+
+```bash
+# Analyse de logs
+tail -n 20 /var/log/syslog | ia "trouve l'erreur critique et propose un fix"
+
+# Explication de code
+cat script_bizarre.py | ia "explique ce que fait ce script en 1 phrase"
 ```
 
 ---
@@ -89,11 +113,18 @@ sudo sed -i '/alias ia=/d' /etc/bash.bashrc
 
 ## 🧠 Fonctionnement
 
-Le script appelle directement l’API Mistral :
+### 1. Smart Context
+Le script injecte automatiquement le contexte de ton serveur dans le prompt :
+- **OS** (ex: "Ubuntu 22.04 LTS")
+- **UID** (ex: "0" pour root → commandes sans sudo)
 
-* Endpoint : `https://api.mistral.ai/v1/chat/completions`
-* Modèle : `mistral-small-latest`
-* Réponse filtrée pour ne renvoyer **que des commandes**
+Cela garantit des réponses adaptées (apt vs dnf, sudo vs direct).
+
+### 2. Backend Agnostique
+Par défaut configuré sur **Mistral API**, le script est compatible avec tout endpoint compatible OpenAI/Ollama.
+
+* Endpoint défaut : `https://api.mistral.ai/v1/chat/completions`
+* Modèle défaut : `mistral-small-latest`
 
 ---
 
@@ -118,8 +149,9 @@ ia-portable/
 
 ## 🔒 Sécurité
 
-* La clé API est stockée localement dans `/etc/profile.d/ia.sh` (non chiffrée)
-* Le script ne conserve **aucune donnée utilisateur**
+* La clé API est stockée dans `/usr/local/etc/ia.conf` avec les droits `600` (root only)
+* Le script utilise `jq` pour sécuriser l'envoi des données (protection contre injection JSON)
+* Aucune donnée utilisateur n'est conservée localement
 * Toutes les requêtes passent par HTTPS
 
 ---
@@ -127,5 +159,5 @@ ia-portable/
 ## 🧩 Auteurs & Crédits
 
 **Auteur :** Neosoda  
-**Version :** v1.1 — 2025-10-26  
+**Version :** v2.0 — 2026-01-03  
 **Licence :** MIT
