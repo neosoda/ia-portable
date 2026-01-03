@@ -159,5 +159,5 @@ ia-portable/
 ## 🧩 Auteurs & Crédits
 
 **Auteur :** Neosoda  
-**Version :** v2.0 — 2026-01-03  
+**Version :** v2.1 — 2026-01-03  
 **Licence :** MIT
