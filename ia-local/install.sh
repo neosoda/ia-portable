@@ -73,8 +73,20 @@ setup_model() {
   # On s'assure que le service tourne
   if ! systemctl is-active --quiet ollama; then
     systemctl start ollama
-    sleep 5
   fi
+
+  echo "  ⏳ Attente du démarrage de Ollama..."
+  local retries=0
+  while ! curl -s -f -o /dev/null "http://localhost:11434"; do
+    sleep 2
+    ((retries++))
+    if ((retries > 15)); then
+      echo "❌ Temps d'attente dépassé. Ollama ne répond pas."
+      echo "   Tente : systemctl status ollama"
+      exit 1
+    fi
+  done
+  echo "  ✅ Ollama est en ligne."
 
   echo "  1. Pulling base model (phi)..."
   ollama pull phi
