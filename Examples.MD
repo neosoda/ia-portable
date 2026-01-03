@@ -69,3 +69,56 @@ Tu peux aussi préciser :
 * **le format** → `ia "donne une commande une-ligne"`
 * **le but exact** → `ia "vérifie que fail2ban protège sshd"`
 * **le mode** → `ia "commande bash uniquement"` (par défaut)
+
+---
+
+## 🔌 Puissance des Pipes (Analyste)
+
+L'outil brille quand il est utilisé dans un pipeline unix. Il "voit" ce que vous lui envoyez.
+
+### Analyse de Logs
+```bash
+# Debugger une erreur Nginx
+tail -n 20 /var/log/nginx/error.log | ia "analyse l'erreur et donne la commande pour fixer"
+
+# Comprendre pourquoi un service crash
+journalctl -u docker.service -n 50 | ia "pourquoi docker ne démarre pas ?"
+```
+
+### Audit de Sécurité
+```bash
+# Identifier les IPs suspectes
+grep "Failed password" /var/log/auth.log | ia "donne la commande pour bannir les 5 IPs les plus fréquentes"
+
+# Vérifier les ports ouverts
+netstat -tulpn | ia "y a-t-il des ports non-standards ouverts ?"
+```
+
+### Refactoring & Code
+```bash
+# Expliquer un script obscur
+cat script_legacy.sh | ia "explique ce que fait ce script en 2 phrases"
+
+# Optimiser une requête
+echo "find . -name '*.jpg' -exec rm {} \;" | ia "propose une version plus rapide avec xargs"
+```
+
+---
+
+## 🧠 Mode Pédagogue & Interactif (-x)
+
+Utilisez `-x` pour le cycle : **Voir -> Comprendre -> Exécuter**.
+
+```bash
+# 1. Je demande une action complexe
+ia -x "supprime récursivement tous les dossiers node_modules du projets"
+
+# 2. L'IA propose :
+# Commande proposée : find . -name "node_modules" -type d -prune -exec rm -rf '{}' +
+
+# 3. Je demande une explication (touche ?)
+# ⚡ Exécuter ? [o/N/?] ?
+# => Réponse : "Cette commande cherche tous les dossiers nommés 'node_modules' et les supprime. L'option -prune évite de descendre dedans, ce qui est très performant."
+
+# 4. Je valide (o)
+```
