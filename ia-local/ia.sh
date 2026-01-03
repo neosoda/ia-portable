@@ -23,12 +23,9 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     *)
-      if [[ -z "$PROMPT" ]]; then
-        PROMPT="$1"
-      else
-        PROMPT="$PROMPT $1"
-      fi
-      shift
+      # On arrête de parser les flags et on prend tout le reste comme prompt
+      PROMPT="$*"
+      break 
       ;;
   esac
 done
@@ -71,11 +68,34 @@ PAYLOAD=$(jq -n \
 # Check si Ollama répond
 if ! curl -s -f -o /dev/null "http://localhost:11434"; then
   echo "❌ Erreur : Ollama n'est pas accessible sur localhost:11434." >&2
-  echo "   Vérifie avec : systemctl status ollama" >&2
   exit 1
 fi
 
-RESPONSE=$(curl -s "$API_URL" -d "$PAYLOAD" | jq -r '.response // empty')
+echo -ne "⏳ Analyse en cours... \r"
+
+# Fonction spinner pour faire patienter
+spinner() {
+  local pid=$1
+  local delay=0.1
+  local spinstr='|/-\'
+  while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+    local temp=${spinstr#?}
+    printf " [%c]  " "$spinstr"
+    local spinstr=$temp${spinstr%"$temp"}
+    sleep $delay
+    printf "\b\b\b\b\b\b"
+  done
+  printf "    \b\b\b\b"
+}
+
+# Appel silencieux en background
+(curl -s --max-time 60 "$API_URL" -d "$PAYLOAD" > /tmp/ia_response.json) &
+PID=$!
+spinner $PID
+wait $PID
+
+RESPONSE=$(jq -r '.response // empty' /tmp/ia_response.json)
+rm -f /tmp/ia_response.json
 
 if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
   echo "❌ Erreur : L'IA n'a rien renvoyé." >&2
