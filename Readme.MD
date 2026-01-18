@@ -156,7 +156,13 @@ ia-portable/
 
 ---
 
-## 🧩 Auteurs & Crédits
+## 🤖 Automatisation & IA
+
+Ce projet est pilotable via Antigravity :
+- **Workflows .agent** : Automatisation des tests sur Debian/Ubuntu via `.agent/workflows/`.
+- **Mode Turbo** : Maintenance autonome via `auto.md`.
+
+---
 
 **Auteur :** Neosoda  
 **Version :** v2.1 — 2026-01-03  
