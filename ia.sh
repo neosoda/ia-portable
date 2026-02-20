@@ -3,18 +3,40 @@
 
 set -euo pipefail
 
-# Charger la configuration sécurisée si elle existe
-if [[ -f "/usr/local/etc/ia.conf" ]]; then
-  source "/usr/local/etc/ia.conf"
-fi
+CONFIG_FILE="/usr/local/etc/ia.conf"
 
-# Charger la configuration sécurisée si elle existe
-if [[ -f "/usr/local/etc/ia.conf" ]]; then
-  source "/usr/local/etc/ia.conf"
-fi
+load_api_key_from_config() {
+  local config_file="$1"
+
+  if [[ ! -f "$config_file" ]]; then
+    return 0
+  fi
+
+  if [[ ! -r "$config_file" ]]; then
+    echo "❌ Fichier de configuration non lisible : $config_file" >&2
+    echo "   Ajuste les permissions ou exporte MISTRAL_API_KEY dans l'environnement." >&2
+    exit 1
+  fi
+
+  local line value
+  line=$(grep -E '^[[:space:]]*(export[[:space:]]+)?MISTRAL_API_KEY=' "$config_file" | tail -n1 || true)
+
+  if [[ -z "$line" ]]; then
+    return 0
+  fi
+
+  value="${line#*=}"
+  value="${value#\"}"
+  value="${value%\"}"
+  value="${value#\'}"
+  value="${value%\'}"
+  API_KEY_FROM_CONFIG="$value"
+}
 
 # ================= Configuration =================
-API_KEY="${MISTRAL_API_KEY:-}"
+API_KEY_FROM_CONFIG=""
+load_api_key_from_config "$CONFIG_FILE"
+API_KEY="${MISTRAL_API_KEY:-${API_KEY_FROM_CONFIG:-}}"
 API_URL="${MISTRAL_API_URL:-https://api.mistral.ai/v1/chat/completions}"
 MODEL="${MISTRAL_MODEL:-mistral-small-latest}"
 
