@@ -1,85 +1,122 @@
 # 🧠 IA Shell Assistant — Local Edition (Ollama)
 
-Assistant en ligne de commande **100% hors-ligne**, propulsé par [Ollama](https://ollama.com) et le modèle **Phi-2** (2.7B).
-
-Cette version est conçue pour la confidentialité totale et les environnements "air-gapped" (sans internet).
+Version locale/offline de l’assistant `ia`, basée sur Ollama.
+Objectif : usage sans dépendance cloud pour environnements sensibles ou isolés.
 
 ---
 
-## 🚀 Fonctionnalités
+## ✅ Ce que fait cette édition
 
-- 🔒 **100% Local & Privé** (Aucune donnée ne sort du serveur)
-- ⚡ **Modèle custom `ia-sysadmin`** (Optimisé pour Bash via `Modelfile`)
-- 🛡️ **Safe-Guards** intégrés (Interdiction `rm -rf`, format strict)
-- 🔌 **Compatible Pipes** (`cat log | ia ...`)
+- Utilise Ollama en local (`http://localhost:11434`).
+- Déploie un modèle custom `ia-sysadmin` construit depuis `Modelfile`.
+- Accepte les entrées via pipe (`stdin`, limite 2000 caractères).
+- Fournit un mode interactif `-x` avec confirmation d’exécution.
 
 ---
 
 ## 📦 Installation
-
-### Pré-requis
-- Un serveur Linux (Debian, Ubuntu, RedHat...)
-- ~2 Go de RAM minimum
-- ~3 Go d'espace disque (pour le modèle Phi)
-- Droits root pour installer le service
-
-### Installation automatique
-Ceci installe Ollama, démarre le service, télécharge automatiquement le petit modèle de base (`phi`), construit `ia-sysadmin` et configure la commande `ia`.
 
 ```bash
 cd ia-local
 sudo bash install.sh
 ```
 
+L’installateur :
+
+- installe `curl` + `jq`,
+- installe Ollama (via script officiel si absent),
+- démarre/active le service Ollama,
+- télécharge le modèle de base,
+- construit le modèle custom,
+- installe `ia-local/ia.sh` vers `/usr/local/bin/ia`.
+
+---
+
+## ⚙️ Variables avancées
+
+```bash
+# URL de génération Ollama
+export IA_LOCAL_API_URL="http://localhost:11434/api/generate"
+
+# Modèle final utilisé par ia
+export IA_LOCAL_MODEL="ia-sysadmin"
+
+# Variables d'installation (au moment de sudo bash install.sh)
+export IA_LOCAL_BASE_MODEL="phi"
+export IA_LOCAL_MODEL="ia-sysadmin"
+```
+
+Notes :
+
+- `IA_LOCAL_API_URL` et `IA_LOCAL_MODEL` pilotent le client runtime.
+- `IA_LOCAL_BASE_MODEL` sert à l’installation/build du modèle custom.
+
 ---
 
 ## 💬 Utilisation
 
-Même syntaxe que la version Cloud :
+### Génération simple
 
 ```bash
-ia "liste les processus gourmands en RAM"
-# output: ps aux --sort=-%mem | head -n 10
+ia "liste les processus les plus gourmands en RAM"
 ```
 
-### Mode Interactif & Exécution
+### Mode interactif
+
 ```bash
-ia -x "crée un dossier backup et déplace les logs dedans"
+ia -x "crée /root/backup et déplace les logs nginx dedans"
+```
+
+### Analyse via pipe
+
+```bash
+journalctl -u nginx -n 100 | ia "résume la panne"
+cat script_legacy.sh | ia "explique ce script"
 ```
 
 ---
 
-## 🔧 Fonctionnement Technique
+## ⚠️ Limites connues
 
-1. **Moteur** : Ollama (Service background sur port 11434)
-2. **Base** : Modèle `phi` (Microsoft Phi-2, 2.7 milliards de paramètres)
-3. **Customisation** :
-   Le fichier `Modelfile` définit une couche de "System Prompt" stricte qui transforme Phi en expert Bash mono-maniaque.
+- La qualité dépend fortement du modèle local choisi.
+- CPU/RAM utilisés localement pendant l’inférence.
+- La commande proposée doit être validée humainement avant exécution.
 
-L'injection de prompt ressemble à ceci :
+---
+
+## 🔎 Dépannage rapide
+
+Vérifier l’API Ollama :
+
+```bash
+curl -fsS http://localhost:11434
+```
+
+Lister les modèles :
+
+```bash
+ollama list
+```
+
+Si `ia` échoue, vérifier :
+
+- service Ollama actif,
+- modèle `ia-sysadmin` présent,
+- `IA_LOCAL_API_URL` correct.
+
+---
+
+## 📁 Structure
+
 ```text
-[CONTEXT: OS=Debian 12, UID=1000] Request: liste les fichiers
+ia-local/
+├── install.sh
+├── ia.sh
+├── Modelfile
+└── Readme.MD
 ```
-
----
-
-## ⚠️ Limitations (vs Version Cloud)
-
-* **Intelligence** : Phi-2 (2.7B) est beaucoup moins "intelligent" que Mistral Large/Small. Il peut avoir du mal avec des demandes très complexes ou abstraites.
-* **Ressources** : Consomme du CPU/RAM localement pendant la génération.
 
 ---
 
 **Auteur :** Neosoda
 **Licence :** MIT
-
-
-## ⚙️ Options avancées
-
-```bash
-# Modèle de base Ollama (défaut: phi)
-IA_LOCAL_BASE_MODEL=phi
-
-# Nom du modèle final utilisé par ia (défaut: ia-sysadmin)
-IA_LOCAL_MODEL=ia-sysadmin
-```
