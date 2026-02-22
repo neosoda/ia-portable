@@ -1,103 +1,89 @@
-# 🧠 IA Shell Assistant — Portable Edition
+# 🧠 IA Shell Assistant — Portable Edition (Mistral / API compatible)
 
-Assistant en ligne de commande pour administrateurs Linux, utilisant l’API **Mistral AI** - https://docs.mistral.ai/api.
-Conçu pour être **rapide, autonome et portable**, il s’installe en une seule commande et fonctionne sur tout serveur Debian/Ubuntu.
+Assistant Bash orienté SRE/sysadmin pour générer des commandes Linux en langage naturel.
+Cette édition utilise un endpoint type OpenAI Chat Completions (Mistral par défaut).
 
 ---
 
-## 🚀 Fonctionnalités
+## ✅ Ce que fait le projet
 
-- ⚙️ **Commandes Linux intelligentes** générées par IA
-- 🔌 **Support des Pipes** : Analyse de logs, refactoring de code...
-- 🧠 **Mode Explain** : Explique les commandes dangereuses avant exécution
-- 🔒 Aucun service externe permanent requis
-- 📦 Installation en local, sans dépendances complexes
-- 🔁 Fonctionne aussi sur serveurs distants via SSH
-- 🌍 Prévu pour Debian 12/13, Ubuntu 22+, Rocky Linux
+- Génère une commande Bash unique (sans markdown).
+- Injecte un contexte système minimal (OS + UID) dans le prompt.
+- Accepte les entrées via pipe (`stdin`) pour analyser logs/code (limite 2000 caractères).
+- Propose un mode interactif `-x` avec explication avant exécution.
+- Fonctionne avec Mistral Cloud **ou** un backend compatible (`MISTRAL_API_URL`).
 
 ---
 
 ## 📦 Installation
 
-### 1. Cloner ou copier le dossier
 ```bash
 git clone https://github.com/neosoda/ia-portable.git
 cd ia-portable
-```
-
-### 2. Lancer l’installeur
-
-```bash
 sudo bash install.sh
 ```
 
-L’installeur :
+L’installateur :
 
-* installe `curl` et `jq` si nécessaire
-* copie le script dans `/usr/local/bin/ia`
-* ajoute un alias global `ia`
-* configure la clé API Mistral si absente
+- installe `curl` + `jq` (apt/dnf/yum),
+- copie `ia.sh` vers `/usr/local/bin/ia`,
+- ajoute `alias ia='/usr/local/bin/ia'` dans `/etc/bash.bashrc`,
+- configure `/usr/local/etc/ia.conf` + chargement global via `/etc/profile.d/ia.sh`.
 
 ---
 
-## 🔑 Configuration
+## 🔐 Configuration
 
-Lors de l’installation, tu peux entrer ta clé API Mistral.
-Cela créera un fichier de configuration système chargé globalement :
+Fichier principal : `/usr/local/etc/ia.conf`
 
-```bash
-/usr/local/etc/ia.conf
-```
-
-Contenu du fichier :
+Exemple :
 
 ```bash
-export MISTRAL_API_KEY="ta_cle_api"
-# Optionnel : changer le modèle 
-# export MISTRAL_MODEL="mistral-large-latest"
-
-# Optionnel : utiliser un backend local (Ollama, LocalAI)
-# export MISTRAL_API_URL="http://localhost:11434/v1/chat/completions"
-# export MISTRAL_MODEL="llama3"
+export MISTRAL_API_KEY="<SECRET>"
+# Optionnel
+# export MISTRAL_MODEL="mistral-small-latest"
+# export MISTRAL_API_URL="https://api.mistral.ai/v1/chat/completions"
 ```
 
-Pour modifier la configuration, édite simplement ce fichier avec `sudo`.
+Variables supportées :
+
+- `MISTRAL_API_KEY` : requis si l’URL cible `mistral.ai`.
+- `MISTRAL_API_URL` : endpoint API Chat Completions compatible.
+- `MISTRAL_MODEL` : modèle à appeler.
 
 ---
 
 ## 💬 Utilisation
 
-### Mode Standard (Sécurisé)
-Affiche simplement la commande suggérée par l'IA.
+### Génération simple
 
 ```bash
-ia "affiche les connexions actives SSH"
-# Résultat : netstat -tnpa | grep 'ssh'
+ia "affiche les connexions SSH actives"
 ```
 
-### Mode Interactif & Explication
-Utilise le flag `-x` pour exécuter ou **comprendre** une commande.
+### Mode interactif (`-x`)
 
 ```bash
-ia -x "supprime les fichiers tmp vieux de 7 jours"
+ia -x "supprime les fichiers .tmp de plus de 7 jours dans /tmp"
 ```
-Le script te proposera :
-```text
-Commande proposée : find /tmp -type f -mtime +7 -delete
-⚡ Exécuter ? [o/N/?] (?=expliquer)
-```
-Si tu tapes `?`, l'IA t'expliquera la commande en détail avant de te redemander confirmation.
 
-### Analyse de contenu (Pipes)
-Tu peux envoyer des logs ou du code à l'IA via un pipe `|`.
+Cycle interactif : afficher -> expliquer (`?`) -> exécuter (`o`) ou annuler.
+
+### Analyse via pipe
 
 ```bash
-# Analyse de logs
-tail -n 20 /var/log/syslog | ia "trouve l'erreur critique et propose un fix"
-
-# Explication de code
-cat script_bizarre.py | ia "explique ce que fait ce script en 1 phrase"
+tail -n 100 /var/log/syslog | ia "trouve l'erreur principale"
+cat script.sh | ia "explique ce script en une phrase"
 ```
+
+---
+
+## ⚠️ Sécurité et limites
+
+- **La commande générée reste non fiable par défaut** : la relire avant exécution.
+- En mode `-x`, l’exécution se fait via `eval` dans le shell courant.
+- La clé API est stockée en `0644` (`/usr/local/etc/ia.conf`) pour usage multi-utilisateur : à considérer comme secret partagé local.
+- En entrée pipe, seules les 2000 premières caractères sont utilisées.
 
 ---
 
@@ -111,60 +97,26 @@ sudo sed -i '/alias ia=/d' /etc/bash.bashrc
 
 ---
 
-## 🧠 Fonctionnement
-
-### 1. Smart Context
-Le script injecte automatiquement le contexte de ton serveur dans le prompt :
-- **OS** (ex: "Ubuntu 22.04 LTS")
-- **UID** (ex: "0" pour root → commandes sans sudo)
-
-Cela garantit des réponses adaptées (apt vs dnf, sudo vs direct).
-
-### 2. Backend Agnostique
-Par défaut configuré sur **Mistral API**, le script est compatible avec tout endpoint compatible OpenAI/Ollama.
-
-* Endpoint défaut : `https://api.mistral.ai/v1/chat/completions`
-* Modèle défaut : `mistral-small-latest`
-
----
-
 ## 📁 Structure
 
-```
+```text
 ia-portable/
-├── install.sh         # installe le script sur n’importe quel serveur
-├── ia.sh              # script principal IA Shell Assistant
-└── Readme.MD          # ce fichier
+├── install.sh
+├── ia.sh
+├── Examples.MD
+└── Readme.MD
 ```
 
 ---
 
-## 🛠️ Dépendances minimales
+## 🛠️ Dépendances
 
-* `curl`
-* `jq`
-* Bash ≥ 5
-
----
-
-## 🔒 Sécurité
-
-* La clé API est stockée dans `/usr/local/etc/ia.conf` avec les droits `644` pour être utilisable par tous les utilisateurs du serveur
-* Le script utilise `jq` pour sécuriser l'envoi des données (protection contre injection JSON)
-* ⚠️ Sur un serveur multi-utilisateur, traite cette clé comme un secret partagé (elle est lisible localement)
-* Aucune donnée utilisateur n'est conservée localement
-* Toutes les requêtes passent par HTTPS
+- Bash
+- `curl`
+- `jq`
+- `timeout` (coreutils)
 
 ---
 
-## 🤖 Automatisation & IA
-
-Ce projet est pilotable via Antigravity :
-- **Workflows .agent** : Automatisation des tests sur Debian/Ubuntu via `.agent/workflows/`.
-- **Mode Turbo** : Maintenance autonome via `auto.md`.
-
----
-
-**Auteur :** Neosoda  
-**Version :** v2.1 — 2026-01-03  
+**Auteur :** Neosoda
 **Licence :** MIT
