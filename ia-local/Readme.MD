@@ -24,7 +24,7 @@ Cette version est conçue pour la confidentialité totale et les environnements 
 - Droits root pour installer le service
 
 ### Installation automatique
-Ceci installe Ollama, télécharge le modèle et configure l'alias.
+Ceci installe Ollama, démarre le service, télécharge automatiquement le petit modèle de base (`phi`), construit `ia-sysadmin` et configure la commande `ia`.
 
 ```bash
 cd ia-local
@@ -72,3 +72,14 @@ L'injection de prompt ressemble à ceci :
 
 **Auteur :** Neosoda
 **Licence :** MIT
+
+
+## ⚙️ Options avancées
+
+```bash
+# Modèle de base Ollama (défaut: phi)
+IA_LOCAL_BASE_MODEL=phi
+
+# Nom du modèle final utilisé par ia (défaut: ia-sysadmin)
+IA_LOCAL_MODEL=ia-sysadmin
+```
