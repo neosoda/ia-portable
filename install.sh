@@ -10,8 +10,8 @@ INSTALL_DIR="/usr/local/bin"
 SCRIPT_NAME="ia"
 SRC_DIR="$(dirname "$(realpath "$0")")"
 SCRIPT_PATH="${INSTALL_DIR}/${SCRIPT_NAME}"
-SCRIPT_PATH="${INSTALL_DIR}/${SCRIPT_NAME}"
 CONFIG_FILE="/usr/local/etc/ia.conf"
+PROFILE_FILE="/etc/profile.d/ia.sh"
 
 main() {
   echo "=== Installation de l’assistant IA ==="
@@ -64,13 +64,26 @@ ensure_api_key() {
     source "$CONFIG_FILE"
   fi
 
+  if [[ -f "$PROFILE_FILE" ]]; then
+    source "$PROFILE_FILE"
+  fi
+
   if [[ -z "${MISTRAL_API_KEY:-}" ]]; then
     read -rp "Entre ta clé API Mistral : " key
     if [[ -n "$key" ]]; then
       mkdir -p "$(dirname "$CONFIG_FILE")"
       echo "export MISTRAL_API_KEY='${key}'" > "$CONFIG_FILE"
-      chmod 600 "$CONFIG_FILE"
-      echo "🔒 Clé stockée de manière sécurisée dans $CONFIG_FILE"
+      chmod 644 "$CONFIG_FILE"
+
+      cat > "$PROFILE_FILE" <<EOF
+# shellcheck shell=sh
+# Charge la configuration IA pour toutes les sessions utilisateur
+[ -r "$CONFIG_FILE" ] && . "$CONFIG_FILE"
+EOF
+      chmod 644 "$PROFILE_FILE"
+
+      echo "🔒 Clé stockée dans $CONFIG_FILE"
+      echo "🌍 Configuration chargée globalement via $PROFILE_FILE"
     else
       echo "⚠️  Clé API non définie. Pense à configurer MISTRAL_API_KEY manuellement." >&2
     fi

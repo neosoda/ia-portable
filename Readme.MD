@@ -43,7 +43,7 @@ L’installeur :
 ## 🔑 Configuration
 
 Lors de l’installation, tu peux entrer ta clé API Mistral.
-Cela créera un fichier de configuration sécurisé (lecture root uniquement) :
+Cela créera un fichier de configuration système chargé globalement :
 
 ```bash
 /usr/local/etc/ia.conf
@@ -149,8 +149,9 @@ ia-portable/
 
 ## 🔒 Sécurité
 
-* La clé API est stockée dans `/usr/local/etc/ia.conf` avec les droits `600` (root only)
+* La clé API est stockée dans `/usr/local/etc/ia.conf` avec les droits `644` pour être utilisable par tous les utilisateurs du serveur
 * Le script utilise `jq` pour sécuriser l'envoi des données (protection contre injection JSON)
+* ⚠️ Sur un serveur multi-utilisateur, traite cette clé comme un secret partagé (elle est lisible localement)
 * Aucune donnée utilisateur n'est conservée localement
 * Toutes les requêtes passent par HTTPS
 
