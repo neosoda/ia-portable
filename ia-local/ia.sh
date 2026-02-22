@@ -3,8 +3,29 @@
 
 set -euo pipefail
 
-API_URL="http://localhost:11434/api/generate"
-MODEL="ia-sysadmin" # Notre modèle custom défini dans le Modelfile
+API_URL="${IA_LOCAL_API_URL:-http://localhost:11434/api/generate}"
+MODEL="${IA_LOCAL_MODEL:-ia-sysadmin}" # Notre modèle custom défini dans le Modelfile
+
+RESPONSE_FILE=""
+
+cleanup() {
+  if [[ -n "${RESPONSE_FILE:-}" && -f "$RESPONSE_FILE" ]]; then
+    rm -f "$RESPONSE_FILE"
+  fi
+}
+
+require_binary() {
+  local bin="$1"
+  if ! command -v "$bin" >/dev/null 2>&1; then
+    echo "❌ Dépendance manquante : $bin" >&2
+    exit 1
+  fi
+}
+
+trap cleanup EXIT
+
+require_binary curl
+require_binary jq
 
 # ================= Gestion des Arguments =================
 RUN_MODE=false
@@ -21,6 +42,11 @@ while [[ $# -gt 0 ]]; do
     -x|--run)
       RUN_MODE=true
       shift
+      ;;
+    --)
+      shift
+      PROMPT="$*"
+      break
       ;;
     *)
       # On arrête de parser les flags et on prend tout le reste comme prompt
@@ -66,7 +92,7 @@ PAYLOAD=$(jq -n \
   }')
 
 # Check si Ollama répond
-if ! curl -s -f -o /dev/null "http://localhost:11434"; then
+if ! curl --silent --show-error --fail --max-time 5 -o /dev/null "${API_URL%/api/generate}"; then
   echo "❌ Erreur : Ollama n'est pas accessible sur localhost:11434." >&2
   exit 1
 fi
@@ -78,24 +104,36 @@ spinner() {
   local pid=$1
   local delay=0.1
   local spinstr='|/-\'
-  while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+  while kill -0 "$pid" >/dev/null 2>&1; do
     local temp=${spinstr#?}
     printf " [%c]  " "$spinstr"
-    local spinstr=$temp${spinstr%"$temp"}
-    sleep $delay
+    spinstr=$temp${spinstr%"$temp"}
+    sleep "$delay"
     printf "\b\b\b\b\b\b"
   done
   printf "    \b\b\b\b"
 }
 
 # Appel silencieux en background
-(curl -s --max-time 60 "$API_URL" -d "$PAYLOAD" > /tmp/ia_response.json) &
+RESPONSE_FILE=$(mktemp -t ia-local-response.XXXXXX.json)
+(curl --silent --show-error --fail-with-body --max-time 60 \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD" \
+  "$API_URL" > "$RESPONSE_FILE") &
 PID=$!
 spinner $PID
-wait $PID
+if ! wait $PID; then
+  echo "\n❌ Erreur : appel API Ollama échoué." >&2
+  exit 1
+fi
 
-RESPONSE=$(jq -r '.response // empty' /tmp/ia_response.json)
-rm -f /tmp/ia_response.json
+RESPONSE=$(jq -r '.response // empty' "$RESPONSE_FILE")
+API_ERROR=$(jq -r '.error // empty' "$RESPONSE_FILE")
+
+if [[ -n "$API_ERROR" ]]; then
+  echo "❌ Erreur Ollama : $API_ERROR" >&2
+  exit 1
+fi
 
 if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
   echo "❌ Erreur : L'IA n'a rien renvoyé." >&2
@@ -105,6 +143,11 @@ fi
 # Nettoyage (Phi est parfois bavard malgré le prompt strict)
 CMD_CLEAN=$(echo "$RESPONSE" | sed 's/^```bash//;s/^```//;s/```$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
+if [[ -z "$CMD_CLEAN" ]]; then
+  echo "❌ Erreur : commande vide après nettoyage de la réponse IA." >&2
+  exit 1
+fi
+
 # ================= Mode Interactif =================
 if [[ "$RUN_MODE" == "true" ]]; then
   echo -e "\n💻 \033[1;36mCommande proposée :\033[0m"
@@ -113,7 +156,7 @@ if [[ "$RUN_MODE" == "true" ]]; then
   read -rp "⚡ Exécuter ? [o/N] " confirm
   if [[ "$confirm" =~ ^[oO](ui)?$ ]]; then
     echo -e "\n🚀 Exécution..."
-    eval "$CMD_CLEAN"
+    bash -lc "$CMD_CLEAN"
   else
     echo "🚫 Annulé."
   fi
