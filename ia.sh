@@ -109,6 +109,8 @@ fi
 call_api() {
   local sys="$1"
   local usr="$2"
+  local raw_response
+  local curl_status
   
   local payload=$(jq -n \
     --arg model "$MODEL" \
@@ -122,10 +124,20 @@ call_api() {
       ]
     }')
 
-  curl -s -f "$API_URL" \
+  set +e
+  raw_response=$(curl --silent --show-error --fail-with-body "$API_URL" \
     -H "Authorization: Bearer $API_KEY" \
     -H "Content-Type: application/json" \
-    -d "$payload" | jq -r '.choices[0].message.content // empty'
+    -d "$payload" 2>&1)
+  curl_status=$?
+  set -e
+
+  if [[ $curl_status -ne 0 ]]; then
+    echo "❌ Erreur API ($curl_status) : ${raw_response}" >&2
+    return 1
+  fi
+
+  echo "$raw_response" | jq -r '.choices[0].message.content // empty'
 }
 
 RESPONSE=$(call_api "$SYSTEM_PROMPT" "$FINAL_PROMPT")
