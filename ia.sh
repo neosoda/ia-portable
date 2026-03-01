@@ -19,25 +19,38 @@ load_api_key_from_config() {
   fi
 
   local line value
-  line=$(grep -E '^[[:space:]]*(export[[:space:]]+)?(OPENROUTER_API_KEY|MISTRAL_API_KEY)=' "$config_file" | tail -n1 || true)
+  line=$(awk '
+    /^[[:space:]]*(#|$)/ { next }
+    {
+      row=$0
+      sub(/^[[:space:]]*/, "", row)
+      sub(/^[[:space:]]*export[[:space:]]+/, "", row)
+      if (row ~ /^(OPENROUTER_API_KEY|MISTRAL_API_KEY)[[:space:]]*=/) {
+        print row
+      }
+    }
+  ' "$config_file" | tail -n1)
 
-  if [[ -z "$line" ]]; then
+  if [[ -z "${line:-}" ]]; then
     return 0
   fi
 
   value="${line#*=}"
+  value=$(printf "%s" "$value" | sed -E "s/^[[:space:]]+//; s/[[:space:]]+$//")
   value="${value#\"}"
   value="${value%\"}"
   value="${value#\'}"
   value="${value%\'}"
-  API_KEY_FROM_CONFIG="$value"
+
+  if [[ -n "$value" ]]; then
+    API_KEY_FROM_CONFIG="$value"
+  fi
 }
 
 # ================= Configuration =================
 API_KEY_FROM_CONFIG=""
 load_api_key_from_config "$CONFIG_FILE"
-OPENROUTER_API_KEY_DEFAULT="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"
-API_KEY="${OPENROUTER_API_KEY:-${MISTRAL_API_KEY:-${API_KEY_FROM_CONFIG:-${OPENROUTER_API_KEY_DEFAULT}}}}"
+API_KEY="${OPENROUTER_API_KEY:-${MISTRAL_API_KEY:-${API_KEY_FROM_CONFIG:-}}}"
 API_URL="${OPENROUTER_API_URL:-${MISTRAL_API_URL:-https://openrouter.ai/api/v1/chat/completions}}"
 REQUEST_TIMEOUT_SECONDS="${IA_API_TIMEOUT_SECONDS:-10}"
 declare -a MODELS=(
@@ -86,6 +99,12 @@ fi
 if [[ -z "$API_KEY" ]]; then
   echo "❌ Clé API manquante pour l'endpoint IA." >&2
   echo "   Configure-la dans /usr/local/etc/ia.conf ou exporte OPENROUTER_API_KEY." >&2
+  exit 1
+fi
+
+if [[ ! "$API_KEY" =~ ^sk-or-v1- ]]; then
+  echo "❌ Clé API invalide : format inattendu pour OPENROUTER_API_KEY." >&2
+  echo "   Vérifie /usr/local/etc/ia.conf (syntaxe: OPENROUTER_API_KEY=...) ou la variable d'environnement." >&2
   exit 1
 fi
 
