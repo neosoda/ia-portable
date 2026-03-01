@@ -53,6 +53,7 @@ load_api_key_from_config "$CONFIG_FILE"
 API_KEY="${OPENROUTER_API_KEY:-${MISTRAL_API_KEY:-${API_KEY_FROM_CONFIG:-}}}"
 API_URL="${OPENROUTER_API_URL:-${MISTRAL_API_URL:-https://openrouter.ai/api/v1/chat/completions}}"
 REQUEST_TIMEOUT_SECONDS="${IA_API_TIMEOUT_SECONDS:-10}"
+VERBOSE_ERRORS="${IA_VERBOSE_ERRORS:-0}"
 declare -a MODELS=(
   "mistralai/mistral-small-3.1-24b-instruct:free"
   "openai/gpt-oss-20b:free"
@@ -191,7 +192,7 @@ call_api() {
       return 0
     fi
 
-    echo "❌ Erreur API modèle '$model' ($curl_status) [tentative $attempt/$MAX_RETRIES_PER_MODEL] : ${raw_response}" >&2
+    log_model_error "$model" "$curl_status" "$attempt" "$raw_response"
     if [[ "$raw_response" == *'"code":429'* && $attempt -lt MAX_RETRIES_PER_MODEL ]]; then
       sleep "$RETRY_DELAY_SECONDS"
       ((attempt++))
@@ -202,6 +203,57 @@ call_api() {
   done
 
   return 1
+}
+
+
+extract_json_error_field() {
+  local raw="$1"
+  local jq_expr="$2"
+  local json_part
+
+  json_part=$(printf "%s" "$raw" | sed -n '/^{/,$p')
+  if [[ -z "$json_part" ]]; then
+    return 0
+  fi
+
+  printf "%s" "$json_part" | jq -r "$jq_expr // empty" 2>/dev/null || true
+}
+
+log_model_error() {
+  local model="$1"
+  local curl_status="$2"
+  local attempt="$3"
+  local raw_response="$4"
+  local provider_msg
+
+  if [[ "$VERBOSE_ERRORS" == "1" ]]; then
+    echo "❌ Erreur API modèle '$model' ($curl_status) [tentative $attempt/$MAX_RETRIES_PER_MODEL] : ${raw_response}" >&2
+    return
+  fi
+
+  provider_msg=$(extract_json_error_field "$raw_response" '.error.metadata.raw')
+
+  if [[ "$raw_response" == *'"code":429'* ]]; then
+    echo "⚠️ Modèle '$model' temporairement saturé (429)." >&2
+    return
+  fi
+
+  if [[ -n "$provider_msg" ]]; then
+    echo "⚠️ Modèle '$model' indisponible (${curl_status}) : $provider_msg" >&2
+    return
+  fi
+
+  case "$curl_status" in
+    28)
+      echo "⚠️ Modèle '$model' indisponible (timeout)." >&2
+      ;;
+    6|7)
+      echo "⚠️ Modèle '$model' indisponible (problème réseau)." >&2
+      ;;
+    *)
+      echo "⚠️ Modèle '$model' indisponible (curl $curl_status)." >&2
+      ;;
+  esac
 }
 
 call_api_with_fallback() {
