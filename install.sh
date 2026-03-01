@@ -58,36 +58,67 @@ ensure_alias() {
   fi
 }
 
+extract_api_key_from_file() {
+  local file="$1"
+
+  if [[ ! -r "$file" ]]; then
+    return 0
+  fi
+
+  awk '
+    /^[[:space:]]*(#|$)/ { next }
+    {
+      row=$0
+      sub(/^[[:space:]]*/, "", row)
+      sub(/^export[[:space:]]+/, "", row)
+      if (row ~ /^(OPENROUTER_API_KEY|MISTRAL_API_KEY)[[:space:]]*=/) {
+        value=row
+        sub(/^[^=]*=/, "", value)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+        gsub(/^"|"$/, "", value)
+        gsub(/^'\''|'\''$/, "", value)
+        if (length(value) > 0) {
+          print value
+        }
+      }
+    }
+  ' "$file" | tail -n1
+}
+
 ensure_api_key() {
-  # Si la clé n'est pas déjà dans l'environnement, on vérifie le fichier de conf
-  if [[ -f "$CONFIG_FILE" ]]; then
-    source "$CONFIG_FILE"
+  local existing_key=""
+
+  if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+    existing_key="$OPENROUTER_API_KEY"
+  elif [[ -n "${MISTRAL_API_KEY:-}" ]]; then
+    existing_key="$MISTRAL_API_KEY"
+  elif [[ -f "$CONFIG_FILE" ]]; then
+    existing_key="$(extract_api_key_from_file "$CONFIG_FILE")"
   fi
 
-  if [[ -f "$PROFILE_FILE" ]]; then
-    source "$PROFILE_FILE"
+  if [[ -n "$existing_key" ]]; then
+    return 0
   fi
 
-  if [[ -z "${OPENROUTER_API_KEY:-${MISTRAL_API_KEY:-}}" ]]; then
-    read -rp "Entre ta clé API OpenRouter : " key
-    if [[ -n "$key" ]]; then
-      mkdir -p "$(dirname "$CONFIG_FILE")"
-      echo "export OPENROUTER_API_KEY='${key}'" > "$CONFIG_FILE"
-      chmod 644 "$CONFIG_FILE"
+  read -rp "Entre ta clé API OpenRouter : " key
+  if [[ -z "$key" ]]; then
+    echo "⚠️  Clé API non définie. Pense à configurer OPENROUTER_API_KEY manuellement." >&2
+    return 0
+  fi
 
-      cat > "$PROFILE_FILE" <<EOF
+  mkdir -p "$(dirname "$CONFIG_FILE")"
+  printf "export OPENROUTER_API_KEY='%s'\n" "$key" > "$CONFIG_FILE"
+  chmod 600 "$CONFIG_FILE"
+
+  cat > "$PROFILE_FILE" <<EOF_PROFILE
 # shellcheck shell=sh
 # Charge la configuration IA pour toutes les sessions utilisateur
 [ -r "$CONFIG_FILE" ] && . "$CONFIG_FILE"
-EOF
-      chmod 644 "$PROFILE_FILE"
+EOF_PROFILE
+  chmod 644 "$PROFILE_FILE"
 
-      echo "🔒 Clé stockée dans $CONFIG_FILE"
-      echo "🌍 Configuration chargée globalement via $PROFILE_FILE"
-    else
-      echo "⚠️  Clé API non définie. Pense à configurer OPENROUTER_API_KEY manuellement." >&2
-    fi
-  fi
+  echo "🔒 Clé stockée dans $CONFIG_FILE (permissions 600)"
+  echo "🌍 Configuration chargée globalement via $PROFILE_FILE"
 }
 
 main "$@"
