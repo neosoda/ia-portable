@@ -64,6 +64,8 @@ declare -a MODELS=(
   "google/gemma-3n-e4b-it:free"
   "google/gemma-3n-e2b-it:free"
 )
+MAX_RETRIES_PER_MODEL="${IA_MAX_RETRIES_PER_MODEL:-2}"
+RETRY_DELAY_SECONDS="${IA_RETRY_DELAY_SECONDS:-1}"
 
 # ================= Gestion des Arguments & Pipe =================
 RUN_MODE=false
@@ -143,36 +145,63 @@ call_api() {
   local usr="$3"
   local raw_response
   local curl_status
-  
-  local payload=$(jq -n \
-    --arg model "$model" \
-    --arg sys "$sys" \
-    --arg content "$usr" \
-    '{
-      model: $model,
-      messages: [
-        {role: "system", content: $sys},
-        {role: "user", content: $content}
-      ]
-    }')
+  local payload
+  local request_prompt
+  local attempt=1
 
-  set +e
-  raw_response=$(curl --silent --show-error --fail-with-body \
-    --connect-timeout "$REQUEST_TIMEOUT_SECONDS" \
-    --max-time "$REQUEST_TIMEOUT_SECONDS" \
-    "$API_URL" \
-    -H "Authorization: Bearer $API_KEY" \
-    -H "Content-Type: application/json" \
-    -d "$payload" 2>&1)
-  curl_status=$?
-  set -e
-
-  if [[ $curl_status -ne 0 ]]; then
-    echo "❌ Erreur API modèle '$model' ($curl_status) : ${raw_response}" >&2
-    return 1
+  if [[ "$model" == google/gemma-* ]]; then
+    # Certains providers Gemma refusent totalement le rôle "system".
+    request_prompt="$sys\n\n$usr"
+    payload=$(jq -n \
+      --arg model "$model" \
+      --arg content "$request_prompt" \
+      '{
+        model: $model,
+        messages: [
+          {role: "user", content: $content}
+        ]
+      }')
+  else
+    payload=$(jq -n \
+      --arg model "$model" \
+      --arg sys "$sys" \
+      --arg content "$usr" \
+      '{
+        model: $model,
+        messages: [
+          {role: "system", content: $sys},
+          {role: "user", content: $content}
+        ]
+      }')
   fi
+  while (( attempt <= MAX_RETRIES_PER_MODEL )); do
+    set +e
+    raw_response=$(curl --silent --show-error --fail-with-body \
+      --connect-timeout "$REQUEST_TIMEOUT_SECONDS" \
+      --max-time "$REQUEST_TIMEOUT_SECONDS" \
+      "$API_URL" \
+      -H "Authorization: Bearer $API_KEY" \
+      -H "Content-Type: application/json" \
+      -d "$payload" 2>&1)
+    curl_status=$?
+    set -e
 
-  echo "$raw_response" | jq -r '.choices[0].message.content // empty'
+    if [[ $curl_status -eq 0 ]]; then
+      echo "$raw_response" | jq -r '.choices[0].message.content // empty'
+      return 0
+    fi
+
+    echo "❌ Erreur API modèle '$model' ($curl_status) [tentative $attempt/$MAX_RETRIES_PER_MODEL] : ${raw_response}" >&2
+    if [[ "$raw_response" == *'"code":429'* && $attempt -lt MAX_RETRIES_PER_MODEL ]]; then
+      sleep "$RETRY_DELAY_SECONDS"
+      ((attempt++))
+      continue
+    fi
+
+    return 1
+  done
+
+  return 1
 }
 
 call_api_with_fallback() {
