@@ -54,12 +54,15 @@ API_KEY="${OPENROUTER_API_KEY:-${MISTRAL_API_KEY:-${API_KEY_FROM_CONFIG:-}}}"
 API_URL="${OPENROUTER_API_URL:-${MISTRAL_API_URL:-https://openrouter.ai/api/v1/chat/completions}}"
 REQUEST_TIMEOUT_SECONDS="${IA_API_TIMEOUT_SECONDS:-10}"
 declare -a MODELS=(
-  "qwen/qwen-3-4b"
-  "google/gemma-3-12b"
-  "google/gemma-3-4b"
-  "meta-llama/llama-3.2-3b-instruct"
-  "google/gemma-3n-4b"
-  "google/gemma-3n-2b"
+  "mistralai/mistral-small-3.1-24b-instruct:free"
+  "openai/gpt-oss-20b:free"
+  "google/gemma-3-12b-it:free"
+  "z-ai/glm-4.5-air:free"
+  "qwen/qwen3-4b:free"
+  "google/gemma-3-4b-it:free"
+  "meta-llama/llama-3.2-3b-instruct:free"
+  "google/gemma-3n-e4b-it:free"
+  "google/gemma-3n-e2b-it:free"
 )
 
 # ================= Gestion des Arguments & Pipe =================
