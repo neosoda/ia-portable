@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================
-# Installeur portable — IA Shell Assistant (Mistral)
+# Installeur portable — IA Shell Assistant (OpenRouter)
 # Compatible Debian 12/13, Ubuntu 22+, Rocky, etc.
 # =====================================================
 
@@ -68,11 +68,11 @@ ensure_api_key() {
     source "$PROFILE_FILE"
   fi
 
-  if [[ -z "${MISTRAL_API_KEY:-}" ]]; then
-    read -rp "Entre ta clé API Mistral : " key
+  if [[ -z "${OPENROUTER_API_KEY:-${MISTRAL_API_KEY:-}}" ]]; then
+    read -rp "Entre ta clé API OpenRouter : " key
     if [[ -n "$key" ]]; then
       mkdir -p "$(dirname "$CONFIG_FILE")"
-      echo "export MISTRAL_API_KEY='${key}'" > "$CONFIG_FILE"
+      echo "export OPENROUTER_API_KEY='${key}'" > "$CONFIG_FILE"
       chmod 644 "$CONFIG_FILE"
 
       cat > "$PROFILE_FILE" <<EOF
@@ -85,7 +85,7 @@ EOF
       echo "🔒 Clé stockée dans $CONFIG_FILE"
       echo "🌍 Configuration chargée globalement via $PROFILE_FILE"
     else
-      echo "⚠️  Clé API non définie. Pense à configurer MISTRAL_API_KEY manuellement." >&2
+      echo "⚠️  Clé API non définie. Pense à configurer OPENROUTER_API_KEY manuellement." >&2
     fi
   fi
 }

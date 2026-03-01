@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# --- IA Shell Assistant via Mistral API ---
+# --- IA Shell Assistant via OpenRouter API (fallback multi-modèles) ---
 
 set -euo pipefail
 
@@ -14,12 +14,12 @@ load_api_key_from_config() {
 
   if [[ ! -r "$config_file" ]]; then
     echo "❌ Fichier de configuration non lisible : $config_file" >&2
-    echo "   Ajuste les permissions ou exporte MISTRAL_API_KEY dans l'environnement." >&2
+    echo "   Ajuste les permissions ou exporte OPENROUTER_API_KEY dans l'environnement." >&2
     exit 1
   fi
 
   local line value
-  line=$(grep -E '^[[:space:]]*(export[[:space:]]+)?MISTRAL_API_KEY=' "$config_file" | tail -n1 || true)
+  line=$(grep -E '^[[:space:]]*(export[[:space:]]+)?(OPENROUTER_API_KEY|MISTRAL_API_KEY)=' "$config_file" | tail -n1 || true)
 
   if [[ -z "$line" ]]; then
     return 0
@@ -36,9 +36,18 @@ load_api_key_from_config() {
 # ================= Configuration =================
 API_KEY_FROM_CONFIG=""
 load_api_key_from_config "$CONFIG_FILE"
-API_KEY="${MISTRAL_API_KEY:-${API_KEY_FROM_CONFIG:-}}"
-API_URL="${MISTRAL_API_URL:-https://api.mistral.ai/v1/chat/completions}"
-MODEL="${MISTRAL_MODEL:-mistral-small-latest}"
+OPENROUTER_API_KEY_DEFAULT="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"
+API_KEY="${OPENROUTER_API_KEY:-${MISTRAL_API_KEY:-${API_KEY_FROM_CONFIG:-${OPENROUTER_API_KEY_DEFAULT}}}}"
+API_URL="${OPENROUTER_API_URL:-${MISTRAL_API_URL:-https://openrouter.ai/api/v1/chat/completions}}"
+REQUEST_TIMEOUT_SECONDS="${IA_API_TIMEOUT_SECONDS:-10}"
+declare -a MODELS=(
+  "qwen/qwen-3-4b"
+  "google/gemma-3-12b"
+  "google/gemma-3-4b"
+  "meta-llama/llama-3.2-3b-instruct"
+  "google/gemma-3n-4b"
+  "google/gemma-3n-2b"
+)
 
 # ================= Gestion des Arguments & Pipe =================
 RUN_MODE=false
@@ -74,9 +83,9 @@ if [[ -z "$PROMPT" && -z "$PIPE_CONTENT" ]]; then
   exit 1
 fi
 
-if [[ -z "$API_KEY" && "$API_URL" == *"mistral.ai"* ]]; then
-  echo "❌ Clé API manquante pour Mistral Cloud." >&2
-  echo "   Configure-la dans /usr/local/etc/ia.conf ou exporte MISTRAL_API_KEY." >&2
+if [[ -z "$API_KEY" ]]; then
+  echo "❌ Clé API manquante pour l'endpoint IA." >&2
+  echo "   Configure-la dans /usr/local/etc/ia.conf ou exporte OPENROUTER_API_KEY." >&2
   exit 1
 fi
 
@@ -107,13 +116,14 @@ fi
 
 # ================= Appel API (Génération) =================
 call_api() {
-  local sys="$1"
-  local usr="$2"
+  local model="$1"
+  local sys="$2"
+  local usr="$3"
   local raw_response
   local curl_status
   
   local payload=$(jq -n \
-    --arg model "$MODEL" \
+    --arg model "$model" \
     --arg sys "$sys" \
     --arg content "$usr" \
     '{
@@ -125,7 +135,10 @@ call_api() {
     }')
 
   set +e
-  raw_response=$(curl --silent --show-error --fail-with-body "$API_URL" \
+  raw_response=$(curl --silent --show-error --fail-with-body \
+    --connect-timeout "$REQUEST_TIMEOUT_SECONDS" \
+    --max-time "$REQUEST_TIMEOUT_SECONDS" \
+    "$API_URL" \
     -H "Authorization: Bearer $API_KEY" \
     -H "Content-Type: application/json" \
     -d "$payload" 2>&1)
@@ -133,17 +146,41 @@ call_api() {
   set -e
 
   if [[ $curl_status -ne 0 ]]; then
-    echo "❌ Erreur API ($curl_status) : ${raw_response}" >&2
+    echo "❌ Erreur API modèle '$model' ($curl_status) : ${raw_response}" >&2
     return 1
   fi
 
   echo "$raw_response" | jq -r '.choices[0].message.content // empty'
 }
 
-RESPONSE=$(call_api "$SYSTEM_PROMPT" "$FINAL_PROMPT")
+call_api_with_fallback() {
+  local sys="$1"
+  local usr="$2"
+  local response=""
+  local model
 
-if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
-  echo "❌ Erreur : Réponse vide de l'IA." >&2
+  for model in "${MODELS[@]}"; do
+    echo "→ Tentative modèle: $model" >&2
+    if response=$(call_api "$model" "$sys" "$usr"); then
+      if [[ -n "$response" && "$response" != "null" ]]; then
+        echo "$response"
+        return 0
+      fi
+      echo "⚠️ Réponse vide du modèle '$model'." >&2
+    fi
+    echo "↪️ Fallback vers le modèle suivant..." >&2
+  done
+
+  return 1
+}
+
+set +e
+RESPONSE=$(call_api_with_fallback "$SYSTEM_PROMPT" "$FINAL_PROMPT")
+fallback_status=$?
+set -e
+
+if [[ $fallback_status -ne 0 || -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
+  echo "❌ Erreur : Aucun modèle n'a répondu correctement." >&2
   exit 1
 fi
 
@@ -167,7 +204,7 @@ if [[ "$RUN_MODE" == "true" ]]; then
       "?")
         echo -e "\n🤔 Analyse en cours..."
         EXPLAIN_SYS="Tu es un expert pédagogique. Explique brièvement (2 phrases max) ce que fait cette commande Bash. Sois précis sur les risques."
-        EXPLAIN_RESP=$(call_api "$EXPLAIN_SYS" "Explique cette commande : $CMD_CLEAN")
+        EXPLAIN_RESP=$(call_api_with_fallback "$EXPLAIN_SYS" "Explique cette commande : $CMD_CLEAN")
         echo -e "\033[1;33m$EXPLAIN_RESP\033[0m"
         # On boucle pour redemander confirmation après explication
         ;;
