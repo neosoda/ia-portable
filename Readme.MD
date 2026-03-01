@@ -1,7 +1,7 @@
-# 🧠 IA Shell Assistant — Portable Edition (Mistral / API compatible)
+# 🧠 IA Shell Assistant — Portable Edition (OpenRouter avec fallback)
 
 Assistant Bash orienté SRE/sysadmin pour générer des commandes Linux en langage naturel.
-Cette édition utilise un endpoint type OpenAI Chat Completions (Mistral par défaut).
+Cette édition utilise OpenRouter (API Chat Completions compatible) avec fallback automatique multi-modèles.
 
 ---
 
@@ -11,7 +11,7 @@ Cette édition utilise un endpoint type OpenAI Chat Completions (Mistral par dé
 - Injecte un contexte système minimal (OS + UID) dans le prompt.
 - Accepte les entrées via pipe (`stdin`) pour analyser logs/code (limite 2000 caractères).
 - Propose un mode interactif `-x` avec explication avant exécution.
-- Fonctionne avec Mistral Cloud **ou** un backend compatible (`MISTRAL_API_URL`).
+- Fonctionne avec OpenRouter par défaut **ou** un backend compatible (`OPENROUTER_API_URL`).
 
 ---
 
@@ -39,17 +39,25 @@ Fichier principal : `/usr/local/etc/ia.conf`
 Exemple :
 
 ```bash
-export MISTRAL_API_KEY="<SECRET>"
+export OPENROUTER_API_KEY="<SECRET>"
 # Optionnel
-# export MISTRAL_MODEL="mistral-small-latest"
-# export MISTRAL_API_URL="https://api.mistral.ai/v1/chat/completions"
+# export OPENROUTER_API_URL="https://openrouter.ai/api/v1/chat/completions"
+# export IA_API_TIMEOUT_SECONDS="10"
 ```
 
 Variables supportées :
 
-- `MISTRAL_API_KEY` : requis si l’URL cible `mistral.ai`.
-- `MISTRAL_API_URL` : endpoint API Chat Completions compatible.
-- `MISTRAL_MODEL` : modèle à appeler.
+- `OPENROUTER_API_KEY` : clé API OpenRouter.
+- `OPENROUTER_API_URL` : endpoint API Chat Completions (défaut: `https://openrouter.ai/api/v1/chat/completions`).
+- `IA_API_TIMEOUT_SECONDS` : timeout global par requête (défaut: `10`).
+
+Fallback automatique sur cette liste (ordre fixe) :
+1. `qwen/qwen-3-4b`
+2. `google/gemma-3-12b`
+3. `google/gemma-3-4b`
+4. `meta-llama/llama-3.2-3b-instruct`
+5. `google/gemma-3n-4b`
+6. `google/gemma-3n-2b`
 
 ---
 
