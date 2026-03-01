@@ -52,12 +52,15 @@ Variables supportées :
 - `IA_API_TIMEOUT_SECONDS` : timeout global par requête (défaut: `10`).
 
 Fallback automatique sur cette liste (ordre fixe) :
-1. `qwen/qwen-3-4b`
-2. `google/gemma-3-12b`
-3. `google/gemma-3-4b`
-4. `meta-llama/llama-3.2-3b-instruct`
-5. `google/gemma-3n-4b`
-6. `google/gemma-3n-2b`
+1. `mistralai/mistral-small-3.1-24b-instruct:free`
+2. `openai/gpt-oss-20b:free`
+3. `google/gemma-3-12b-it:free`
+4. `z-ai/glm-4.5-air:free`
+5. `qwen/qwen3-4b:free`
+6. `google/gemma-3-4b-it:free`
+7. `meta-llama/llama-3.2-3b-instruct:free`
+8. `google/gemma-3n-e4b-it:free`
+9. `google/gemma-3n-e2b-it:free`
 
 ---
 
