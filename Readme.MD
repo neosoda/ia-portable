@@ -90,7 +90,7 @@ cat script.sh | ia "explique ce script en une phrase"
 
 - **La commande générée reste non fiable par défaut** : la relire avant exécution.
 - En mode `-x`, l’exécution se fait via `eval` dans le shell courant.
-- La clé API est stockée en `0644` (`/usr/local/etc/ia.conf`) pour usage multi-utilisateur : à considérer comme secret partagé local.
+- La clé API est stockée en `0600` (`/usr/local/etc/ia.conf`) pour limiter l'exposition locale du secret.
 - En entrée pipe, seules les 2000 premières caractères sont utilisées.
 
 ---
