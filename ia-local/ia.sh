@@ -27,6 +27,47 @@ trap cleanup EXIT
 require_binary curl
 require_binary jq
 
+# ================= Fonctions de sécurité & audit =================
+
+is_dangerous_command() {
+  local cmd="$1"
+  if echo "$cmd" | grep -qE \
+    'rm[[:space:]]+-[a-zA-Z]*r[a-zA-Z]*f|rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*r|\bdd\b[^|]*\bof=|\bmkfs\b|\bfdisk\b|\bparted\b|\bwipefs\b|\bshred\b|(curl|wget)[^|]*\|[[:space:]]*(bash|sh)\b|:\(\)\{|> /dev/[sh]|chmod[[:space:]]+-?R\b|chmod[[:space:]]+[0-7]*7[0-7][0-7]'; then
+    return 0
+  fi
+  return 1
+}
+
+validate_command_syntax() {
+  local cmd="$1"
+  if ! bash -n <<< "$cmd" 2>/dev/null; then
+    echo "❌ Syntaxe invalide détectée dans la commande générée. Abandon." >&2
+    return 1
+  fi
+  return 0
+}
+
+extract_single_line() {
+  local raw="$1"
+  local line_count
+  line_count=$(echo "$raw" | wc -l)
+  if [[ $line_count -gt 1 ]]; then
+    echo "⚠️  Réponse multi-lignes ($line_count lignes). Seule la première est conservée." >&2
+    echo "$raw" | head -1
+  else
+    echo "$raw"
+  fi
+}
+
+log_execution() {
+  local status="$1"
+  local log_file="${HOME}/.ia_history"
+  local timestamp
+  timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+  printf '[%s] [local] PROMPT="%s" | CMD="%s" | STATUS=%s\n' \
+    "$timestamp" "$PROMPT" "$CMD_CLEAN" "$status" >> "$log_file"
+}
+
 # ================= Gestion des Arguments =================
 RUN_MODE=false
 PROMPT=""
@@ -148,17 +189,41 @@ if [[ -z "$CMD_CLEAN" ]]; then
   exit 1
 fi
 
+# ── Validation post-nettoyage ────────────────────────────────────────────────
+CMD_CLEAN=$(extract_single_line "$CMD_CLEAN")
+
+if ! validate_command_syntax "$CMD_CLEAN"; then
+  exit 1
+fi
+
 # ================= Mode Interactif =================
 if [[ "$RUN_MODE" == "true" ]]; then
   echo -e "\n💻 \033[1;36mCommande proposée :\033[0m"
   echo -e "   $CMD_CLEAN"
-  echo -e ""
-  read -rp "⚡ Exécuter ? [o/N] " confirm
-  if [[ "$confirm" =~ ^[oO](ui)?$ ]]; then
-    echo -e "\n🚀 Exécution..."
-    bash -lc "$CMD_CLEAN"
+
+  if is_dangerous_command "$CMD_CLEAN"; then
+    echo -e "\n\033[1;31m⚠️  COMMANDE POTENTIELLEMENT DESTRUCTIVE\033[0m"
+    echo -e "\033[1;31m   Vérifiez attentivement avant de confirmer.\033[0m"
+    read -rp "⚡ Exécuter ? [OUI/N] (tapez OUI en majuscules pour confirmer) " confirm
+    if [[ "$confirm" == "OUI" ]]; then
+      echo -e "\n🚀 Exécution..."
+      bash -lc "$CMD_CLEAN"
+      log_execution "executed"
+    else
+      echo "🚫 Annulé."
+      log_execution "cancelled"
+    fi
   else
-    echo "🚫 Annulé."
+    echo ""
+    read -rp "⚡ Exécuter ? [o/N] " confirm
+    if [[ "$confirm" =~ ^[oO](ui)?$ ]]; then
+      echo -e "\n🚀 Exécution..."
+      bash -lc "$CMD_CLEAN"
+      log_execution "executed"
+    else
+      echo "🚫 Annulé."
+      log_execution "cancelled"
+    fi
   fi
 else
   echo "$CMD_CLEAN"

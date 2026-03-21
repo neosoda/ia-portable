@@ -72,7 +72,21 @@ install_ollama() {
   fi
 
   echo "→ Téléchargement et installation de Ollama..."
-  curl -fsSL https://ollama.com/install.sh | sh
+  echo "⚠️  Le script d'installation Ollama sera téléchargé depuis ollama.com et exécuté en root."
+  echo "   Inspectez-le si vous opérez dans un contexte de sécurité strict :"
+  echo "   curl -fsSL https://ollama.com/install.sh | less"
+  read -rp "   Continuer ? [o/N] " _ollama_confirm
+  if [[ ! "$_ollama_confirm" =~ ^[oO](ui)?$ ]]; then
+    echo "❌ Installation Ollama annulée." >&2
+    exit 1
+  fi
+
+  local ollama_script
+  ollama_script=$(mktemp -t ollama-install.XXXXXX.sh)
+  trap "rm -f '$ollama_script'" RETURN
+  curl -fsSL https://ollama.com/install.sh -o "$ollama_script"
+  bash "$ollama_script"
+  rm -f "$ollama_script"
 
   if ! command -v ollama >/dev/null 2>&1; then
     echo "❌ Ollama n'est pas disponible après installation." >&2

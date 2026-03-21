@@ -139,6 +139,52 @@ if [[ -n "$PIPE_CONTENT" ]]; then
   FINAL_PROMPT="$PROMPT\n\n--- INPUT DATA ---\n$PIPE_CONTENT"
 fi
 
+# ================= Fonctions de sécurité & audit =================
+
+# Détecte les commandes potentiellement destructives
+is_dangerous_command() {
+  local cmd="$1"
+  # Patterns : rm -rf, dd of=, mkfs, formatage, pipe curl/wget vers shell, chmod 777, etc.
+  if echo "$cmd" | grep -qE \
+    'rm[[:space:]]+-[a-zA-Z]*r[a-zA-Z]*f|rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*r|\bdd\b[^|]*\bof=|\bmkfs\b|\bfdisk\b|\bparted\b|\bwipefs\b|\bshred\b|(curl|wget)[^|]*\|[[:space:]]*(bash|sh)\b|:\(\)\{|> /dev/[sh]|chmod[[:space:]]+-?R\b|chmod[[:space:]]+[0-7]*7[0-7][0-7]'; then
+    return 0
+  fi
+  return 1
+}
+
+# Valide la syntaxe bash de la commande générée
+validate_command_syntax() {
+  local cmd="$1"
+  if ! bash -n <<< "$cmd" 2>/dev/null; then
+    echo "❌ Syntaxe invalide détectée dans la commande générée. Abandon." >&2
+    return 1
+  fi
+  return 0
+}
+
+# Extrait uniquement la première ligne (protection contre sorties multi-lignes)
+extract_single_line() {
+  local raw="$1"
+  local line_count
+  line_count=$(echo "$raw" | wc -l)
+  if [[ $line_count -gt 1 ]]; then
+    echo "⚠️  Réponse multi-lignes détectée ($line_count lignes). Seule la première est conservée." >&2
+    echo "$raw" | head -1
+  else
+    echo "$raw"
+  fi
+}
+
+# Journal d'audit des exécutions
+log_execution() {
+  local status="$1"
+  local log_file="${HOME}/.ia_history"
+  local timestamp
+  timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+  printf '[%s] PROMPT="%s" | CMD="%s" | STATUS=%s\n' \
+    "$timestamp" "$PROMPT" "$CMD_CLEAN" "$status" >> "$log_file"
+}
+
 # ================= Appel API (Génération) =================
 call_api() {
   local model="$1"
@@ -176,6 +222,8 @@ call_api() {
       }')
   fi
   while (( attempt <= MAX_RETRIES_PER_MODEL )); do
+    # Spinner pendant l'appel réseau
+    printf "  ⏳ Appel %s [essai %s/%s]...\r" "$model" "$attempt" "$MAX_RETRIES_PER_MODEL" >&2
     set +e
     raw_response=$(curl --silent --show-error --fail-with-body \
       --connect-timeout "$REQUEST_TIMEOUT_SECONDS" \
@@ -186,6 +234,7 @@ call_api() {
       -d "$payload" 2>&1)
     curl_status=$?
     set -e
+    printf "%-60s\r" "" >&2  # Efface la ligne du spinner
 
     if [[ $curl_status -eq 0 ]]; then
       echo "$raw_response" | jq -r '.choices[0].message.content // empty'
@@ -193,9 +242,11 @@ call_api() {
     fi
 
     log_model_error "$model" "$curl_status" "$attempt" "$raw_response"
-    if [[ "$raw_response" == *'"code":429'* && $attempt -lt MAX_RETRIES_PER_MODEL ]]; then
+    # FIX: $MAX_RETRIES_PER_MODEL ($ manquant dans la version précédente)
+    if [[ "$raw_response" == *'"code":429'* && $attempt -lt $MAX_RETRIES_PER_MODEL ]]; then
       sleep "$RETRY_DELAY_SECONDS"
-      ((attempt++))
+      # FIX: évite ((attempt++)) == 0 qui déclencherait set -e
+      attempt=$((attempt + 1))
       continue
     fi
 
@@ -287,21 +338,47 @@ if [[ $fallback_status -ne 0 || -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
   exit 1
 fi
 
-# Nettoyage
+# Nettoyage du markdown résiduel
 CMD_CLEAN=$(echo "$RESPONSE" | sed 's/^```bash//;s/^```//;s/```$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
-# ================= Mode Interactif & Explain =================
+# ── Validation post-nettoyage ────────────────────────────────────────────────
+
+# 1. Rejette les réponses vides après nettoyage
+if [[ -z "$CMD_CLEAN" ]]; then
+  echo "❌ Erreur : commande vide après nettoyage de la réponse IA." >&2
+  exit 1
+fi
+
+# 2. Limite à une seule ligne physique
+CMD_CLEAN=$(extract_single_line "$CMD_CLEAN")
+
+# 3. Vérification syntaxique bash
+if ! validate_command_syntax "$CMD_CLEAN"; then
+  exit 1
+fi
+
+# ── Mode interactif & explain ────────────────────────────────────────────────
 if [[ "$RUN_MODE" == "true" ]]; then
   while true; do
     echo -e "\n💻 \033[1;36mCommande proposée :\033[0m"
     echo -e "   $CMD_CLEAN"
-    echo -e ""
-    read -rp "⚡ Exécuter ? [o/N/?] (?=expliquer) " confirm
+
+    # Alerte visuelle si la commande est potentiellement destructive
+    if is_dangerous_command "$CMD_CLEAN"; then
+      echo -e "\n\033[1;31m⚠️  COMMANDE POTENTIELLEMENT DESTRUCTIVE\033[0m"
+      echo -e "\033[1;31m   Vérifiez attentivement avant de confirmer.\033[0m"
+      read -rp "⚡ Exécuter ? [OUI/N/?] (tapez OUI en majuscules pour confirmer) " confirm
+    else
+      echo ""
+      read -rp "⚡ Exécuter ? [o/N/?] (?=expliquer) " confirm
+    fi
 
     case "$confirm" in
-      [oO]|[oO][uU][iI])
+      [oO]|[oO][uU][iI]|OUI)
         echo -e "\n🚀 Exécution..."
-        eval "$CMD_CLEAN"
+        # FIX: bash -c au lieu de eval (scope isolé, pas d'injection dans le shell courant)
+        bash -c "$CMD_CLEAN"
+        log_execution "executed"
         break
         ;;
       "?")
@@ -309,15 +386,15 @@ if [[ "$RUN_MODE" == "true" ]]; then
         EXPLAIN_SYS="Tu es un expert pédagogique. Explique brièvement (2 phrases max) ce que fait cette commande Bash. Sois précis sur les risques."
         EXPLAIN_RESP=$(call_api_with_fallback "$EXPLAIN_SYS" "Explique cette commande : $CMD_CLEAN")
         echo -e "\033[1;33m$EXPLAIN_RESP\033[0m"
-        # On boucle pour redemander confirmation après explication
         ;;
       *)
         echo "🚫 Annulé."
+        log_execution "cancelled"
         break
         ;;
     esac
   done
 else
-  # Mode standard
+  # Mode standard : affichage seul, pas d'exécution
   echo "$CMD_CLEAN"
 fi

@@ -1,0 +1,10 @@
+# Fichiers Windows locaux — ne pas versionner
+"Claude full.bat"
+Claude full.bat
+
+# Fichiers sensibles
+*.conf
+.env
+
+# Logs d'audit locaux
+.ia_history

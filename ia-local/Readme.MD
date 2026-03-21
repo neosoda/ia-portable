@@ -7,10 +7,13 @@ Objectif : usage sans dépendance cloud pour environnements sensibles ou isolés
 
 ## ✅ Ce que fait cette édition
 
-- Utilise Ollama en local (`http://localhost:11434`).
+- Utilise Ollama en local (`http://localhost:11434`) — aucune donnée n’est envoyée en dehors de la machine.
 - Déploie un modèle custom `ia-sysadmin` construit depuis `Modelfile`.
 - Accepte les entrées via pipe (`stdin`, limite 2000 caractères).
 - Fournit un mode interactif `-x` avec confirmation d’exécution.
+- Valide la syntaxe bash et la longueur de la réponse avant toute présentation.
+- Détecte les commandes potentiellement destructives et demande une confirmation renforcée (`OUI`).
+- Journalise chaque exécution dans `~/.ia_history` (audit trail).
 
 ---
 
@@ -24,7 +27,7 @@ sudo bash install.sh
 L’installateur :
 
 - installe `curl` + `jq`,
-- installe Ollama (via script officiel si absent),
+- installe Ollama (**demande confirmation** avant d’exécuter le script officiel),
 - démarre/active le service Ollama,
 - télécharge le modèle de base,
 - construit le modèle custom,
@@ -76,11 +79,14 @@ cat script_legacy.sh | ia "explique ce script"
 
 ---
 
-## ⚠️ Limites connues
+## ⚠️ Sécurité et limites
 
 - La qualité dépend fortement du modèle local choisi.
-- CPU/RAM utilisés localement pendant l’inférence.
+- CPU/RAM utilisés localement pendant l’inférence (~2-4 Go pour Phi).
 - La commande proposée doit être validée humainement avant exécution.
+- Les commandes destructives (`rm -rf`, `dd of=`, `mkfs`…) déclenchent une alerte rouge et requièrent `OUI` en majuscules.
+- La syntaxe bash est vérifiée (`bash -n`) avant présentation.
+- Chaque exécution est journalisée dans `~/.ia_history`.
 
 ---
 
