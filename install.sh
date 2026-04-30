@@ -10,7 +10,7 @@ SCRIPT_NAME="ia"
 SRC_DIR="$(dirname "$(realpath "$0")")"
 SCRIPT_PATH="${INSTALL_DIR}/${SCRIPT_NAME}"
 OLLAMA_URL="http://127.0.0.1:11434"
-BASE_MODEL="${IA_LOCAL_BASE_MODEL:-qwen2.5-coder:1.5b-instruct}"
+BASE_MODEL="${IA_LOCAL_BASE_MODEL:-qwen2.5:0.5b-instruct}"
 CUSTOM_MODEL="${IA_LOCAL_MODEL:-ia-sysadmin}"
 
 # Détections couleurs

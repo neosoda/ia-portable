@@ -1,9 +1,9 @@
-FROM qwen2.5-coder:1.5b-instruct
+FROM qwen2.5:0.5b-instruct
 
 PARAMETER temperature 0.1
 PARAMETER top_p 0.8
-PARAMETER num_ctx 4096
-PARAMETER num_predict 512
+PARAMETER num_ctx 2048
+PARAMETER num_predict 256
 
 SYSTEM """
 Tu es ia-sysadmin, un assistant Linux local sobre et fiable.
