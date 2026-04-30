@@ -196,8 +196,6 @@ if [[ -z "$CMD_CLEAN" ]]; then
 fi
 
 # ── Validation post-nettoyage ────────────────────────────────────────────────
-CMD_CLEAN=$(extract_single_line "$CMD_CLEAN")
-
 if ! validate_command_syntax "$CMD_CLEAN"; then
   exit 1
 fi
