@@ -21,6 +21,7 @@ main() {
   install_script
   ensure_alias
   ensure_api_key
+  verify_installation
 
   echo "✅ Installation terminée !"
   echo "Tu peux maintenant exécuter :  ia 'ta question'"
@@ -53,9 +54,16 @@ install_script() {
 }
 
 ensure_alias() {
-  if ! grep -q "alias ia=" /etc/bash.bashrc; then
-    echo "alias ia='/usr/local/bin/ia'" >> /etc/bash.bashrc
+  sed -i '/alias ia=/d' /etc/bash.bashrc
+  echo "alias ia='/usr/local/bin/ia'" >> /etc/bash.bashrc
+}
+
+verify_installation() {
+  if [[ ! -x "$SCRIPT_PATH" ]]; then
+    echo "❌ Échec : le script ia n'est pas installé dans $SCRIPT_PATH." >&2
+    exit 1
   fi
+  echo "→ Vérification : $SCRIPT_PATH ✓"
 }
 
 extract_api_key_from_file() {
@@ -71,7 +79,7 @@ extract_api_key_from_file() {
       row=$0
       sub(/^[[:space:]]*/, "", row)
       sub(/^export[[:space:]]+/, "", row)
-      if (row ~ /^(OPENROUTER_API_KEY|MISTRAL_API_KEY)[[:space:]]*=/) {
+      if (row ~ /^OPENROUTER_API_KEY[[:space:]]*=/) {
         value=row
         sub(/^[^=]*=/, "", value)
         gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
@@ -90,8 +98,6 @@ ensure_api_key() {
 
   if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
     existing_key="$OPENROUTER_API_KEY"
-  elif [[ -n "${MISTRAL_API_KEY:-}" ]]; then
-    existing_key="$MISTRAL_API_KEY"
   elif [[ -f "$CONFIG_FILE" ]]; then
     existing_key="$(extract_api_key_from_file "$CONFIG_FILE")"
   fi
@@ -100,15 +106,15 @@ ensure_api_key() {
     return 0
   fi
 
-  read -rp "Entre ta clé API OpenRouter : " key
+  read -rsp "Entre ta clé API OpenRouter : " key
+  echo
   if [[ -z "$key" ]]; then
     echo "⚠️  Clé API non définie. Pense à configurer OPENROUTER_API_KEY manuellement." >&2
     return 0
   fi
 
   mkdir -p "$(dirname "$CONFIG_FILE")"
-  printf "export OPENROUTER_API_KEY='%s'\n" "$key" > "$CONFIG_FILE"
-  chmod 600 "$CONFIG_FILE"
+  (umask 077; printf "export OPENROUTER_API_KEY='%s'\n" "$key" > "$CONFIG_FILE")
 
   cat > "$PROFILE_FILE" <<EOF_PROFILE
 # shellcheck shell=sh

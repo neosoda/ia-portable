@@ -25,7 +25,7 @@ load_api_key_from_config() {
       row=$0
       sub(/^[[:space:]]*/, "", row)
       sub(/^[[:space:]]*export[[:space:]]+/, "", row)
-      if (row ~ /^(OPENROUTER_API_KEY|MISTRAL_API_KEY)[[:space:]]*=/) {
+      if (row ~ /^OPENROUTER_API_KEY[[:space:]]*=/) {
         print row
       }
     }
@@ -50,8 +50,8 @@ load_api_key_from_config() {
 # ================= Configuration =================
 API_KEY_FROM_CONFIG=""
 load_api_key_from_config "$CONFIG_FILE"
-API_KEY="${OPENROUTER_API_KEY:-${MISTRAL_API_KEY:-${API_KEY_FROM_CONFIG:-}}}"
-API_URL="${OPENROUTER_API_URL:-${MISTRAL_API_URL:-https://openrouter.ai/api/v1/chat/completions}}"
+API_KEY="${OPENROUTER_API_KEY:-${API_KEY_FROM_CONFIG:-}}"
+API_URL="${OPENROUTER_API_URL:-https://openrouter.ai/api/v1/chat/completions}"
 REQUEST_TIMEOUT_SECONDS="${IA_API_TIMEOUT_SECONDS:-10}"
 VERBOSE_ERRORS="${IA_VERBOSE_ERRORS:-0}"
 declare -a MODELS=(
@@ -108,8 +108,8 @@ if [[ -z "$API_KEY" ]]; then
   exit 1
 fi
 
-if [[ ! "$API_KEY" =~ ^sk-or-v1- ]]; then
-  echo "❌ Clé API invalide : format inattendu pour OPENROUTER_API_KEY." >&2
+if [[ ${#API_KEY} -lt 10 ]]; then
+  echo "❌ Clé API manquante ou invalide (OPENROUTER_API_KEY trop courte)." >&2
   echo "   Vérifie /usr/local/etc/ia.conf (syntaxe: OPENROUTER_API_KEY=...) ou la variable d'environnement." >&2
   exit 1
 fi
@@ -136,7 +136,7 @@ Si la demande est impossible ou trop dangereuse sans confirmation, renvoie : \"e
 
 FINAL_PROMPT="$PROMPT"
 if [[ -n "$PIPE_CONTENT" ]]; then
-  FINAL_PROMPT="$PROMPT\n\n--- INPUT DATA ---\n$PIPE_CONTENT"
+  FINAL_PROMPT="${PROMPT}"$'\n\n'"--- INPUT DATA ---"$'\n'"${PIPE_CONTENT}"
 fi
 
 # ================= Fonctions de sécurité & audit =================
@@ -146,7 +146,7 @@ is_dangerous_command() {
   local cmd="$1"
   # Patterns : rm -rf, dd of=, mkfs, formatage, pipe curl/wget vers shell, chmod 777, etc.
   if echo "$cmd" | grep -qE \
-    'rm[[:space:]]+-[a-zA-Z]*r[a-zA-Z]*f|rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*r|\bdd\b[^|]*\bof=|\bmkfs\b|\bfdisk\b|\bparted\b|\bwipefs\b|\bshred\b|(curl|wget)[^|]*\|[[:space:]]*(bash|sh)\b|:\(\)\{|> /dev/[sh]|chmod[[:space:]]+-?R\b|chmod[[:space:]]+[0-7]*7[0-7][0-7]'; then
+    'rm[[:space:]]+-[a-zA-Z]*r[a-zA-Z]*f|rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*r|\bdd\b[^|]*\bof=|\bmkfs\b|\bfdisk\b|\bparted\b|\bwipefs\b|\bshred\b|(curl|wget)[^|]*\|[[:space:]]*(bash|sh)\b|:\(\)\{|> /dev/[sh]|chmod[[:space:]]+-?R\b|chmod[[:space:]]+[0-7]*7[0-7][0-7]|\breboot\b|\bpoweroff\b|\bshutdown\b|\biptables[[:space:]]+-F\b|\bufw[[:space:]]+disable\b|\buserdel\b|\bkill[[:space:]]+-9[[:space:]]+1\b'; then
     return 0
   fi
   return 1
@@ -181,7 +181,7 @@ log_execution() {
   local log_file="${HOME}/.ia_history"
   local timestamp
   timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  printf '[%s] PROMPT="%s" | CMD="%s" | STATUS=%s\n' \
+  printf '[%s] PROMPT=%q | CMD=%q | STATUS=%s\n' \
     "$timestamp" "$PROMPT" "$CMD_CLEAN" "$status" >> "$log_file"
 }
 
@@ -244,8 +244,7 @@ call_api() {
     log_model_error "$model" "$curl_status" "$attempt" "$raw_response"
     # FIX: $MAX_RETRIES_PER_MODEL ($ manquant dans la version précédente)
     if [[ "$raw_response" == *'"code":429'* && $attempt -lt $MAX_RETRIES_PER_MODEL ]]; then
-      sleep "$RETRY_DELAY_SECONDS"
-      # FIX: évite ((attempt++)) == 0 qui déclencherait set -e
+      sleep $(( RETRY_DELAY_SECONDS * attempt ))
       attempt=$((attempt + 1))
       continue
     fi

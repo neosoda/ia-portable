@@ -32,7 +32,7 @@ require_binary jq
 is_dangerous_command() {
   local cmd="$1"
   if echo "$cmd" | grep -qE \
-    'rm[[:space:]]+-[a-zA-Z]*r[a-zA-Z]*f|rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*r|\bdd\b[^|]*\bof=|\bmkfs\b|\bfdisk\b|\bparted\b|\bwipefs\b|\bshred\b|(curl|wget)[^|]*\|[[:space:]]*(bash|sh)\b|:\(\)\{|> /dev/[sh]|chmod[[:space:]]+-?R\b|chmod[[:space:]]+[0-7]*7[0-7][0-7]'; then
+    'rm[[:space:]]+-[a-zA-Z]*r[a-zA-Z]*f|rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*r|\bdd\b[^|]*\bof=|\bmkfs\b|\bfdisk\b|\bparted\b|\bwipefs\b|\bshred\b|(curl|wget)[^|]*\|[[:space:]]*(bash|sh)\b|:\(\)\{|> /dev/[sh]|chmod[[:space:]]+-?R\b|chmod[[:space:]]+[0-7]*7[0-7][0-7]|\breboot\b|\bpoweroff\b|\bshutdown\b|\biptables[[:space:]]+-F\b|\bufw[[:space:]]+disable\b|\buserdel\b|\bkill[[:space:]]+-9[[:space:]]+1\b'; then
     return 0
   fi
   return 1
@@ -64,7 +64,7 @@ log_execution() {
   local log_file="${HOME}/.ia_history"
   local timestamp
   timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  printf '[%s] [local] PROMPT="%s" | CMD="%s" | STATUS=%s\n' \
+  printf '[%s] [local] PROMPT=%q | CMD=%q | STATUS=%s\n' \
     "$timestamp" "$PROMPT" "$CMD_CLEAN" "$status" >> "$log_file"
 }
 
@@ -113,7 +113,7 @@ USER_ID=$(id -u)
 FULL_PROMPT="[CONTEXT: OS=$OS_INFO, UID=$USER_ID (0=root)] Request: $PROMPT"
 
 if [[ -n "$PIPE_CONTENT" ]]; then
-  FULL_PROMPT="$FULL_PROMPT. Input data: $PIPE_CONTENT"
+  FULL_PROMPT="${FULL_PROMPT}"$'\n\n'"--- INPUT DATA ---"$'\n'"${PIPE_CONTENT}"
 fi
 
 # ================= Appel API Ollama =================
@@ -135,6 +135,12 @@ PAYLOAD=$(jq -n \
 # Check si Ollama répond
 if ! curl --silent --show-error --fail --max-time 5 -o /dev/null "${API_URL%/api/generate}"; then
   echo "❌ Erreur : Ollama n'est pas accessible sur localhost:11434." >&2
+  exit 1
+fi
+
+if ! ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -Fxq "$MODEL"; then
+  echo "❌ Erreur : modèle '$MODEL' introuvable dans Ollama." >&2
+  echo "   Lance : ollama pull $MODEL" >&2
   exit 1
 fi
 
@@ -164,7 +170,7 @@ RESPONSE_FILE=$(mktemp -t ia-local-response.XXXXXX.json)
 PID=$!
 spinner $PID
 if ! wait $PID; then
-  echo "\n❌ Erreur : appel API Ollama échoué." >&2
+  printf '\n❌ Erreur : appel API Ollama échoué.\n' >&2
   exit 1
 fi
 
@@ -181,7 +187,7 @@ if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
   exit 1
 fi
 
-# Nettoyage (Phi est parfois bavard malgré le prompt strict)
+# Nettoyage du markdown résiduel dans la réponse
 CMD_CLEAN=$(echo "$RESPONSE" | sed 's/^```bash//;s/^```//;s/```$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
 if [[ -z "$CMD_CLEAN" ]]; then
@@ -207,7 +213,7 @@ if [[ "$RUN_MODE" == "true" ]]; then
     read -rp "⚡ Exécuter ? [OUI/N] (tapez OUI en majuscules pour confirmer) " confirm
     if [[ "$confirm" == "OUI" ]]; then
       echo -e "\n🚀 Exécution..."
-      bash -lc "$CMD_CLEAN"
+      bash -c "$CMD_CLEAN"
       log_execution "executed"
     else
       echo "🚫 Annulé."
@@ -216,9 +222,9 @@ if [[ "$RUN_MODE" == "true" ]]; then
   else
     echo ""
     read -rp "⚡ Exécuter ? [o/N] " confirm
-    if [[ "$confirm" =~ ^[oO](ui)?$ ]]; then
+    if [[ "$confirm" =~ ^[oO]([uU][iI])?$ ]]; then
       echo -e "\n🚀 Exécution..."
-      bash -lc "$CMD_CLEAN"
+      bash -c "$CMD_CLEAN"
       log_execution "executed"
     else
       echo "🚫 Annulé."

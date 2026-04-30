@@ -10,7 +10,7 @@ SCRIPT_NAME="ia"
 SRC_DIR="$(dirname "$(realpath "$0")")"
 SCRIPT_PATH="${INSTALL_DIR}/${SCRIPT_NAME}"
 OLLAMA_URL="http://127.0.0.1:11434"
-BASE_MODEL="${IA_LOCAL_BASE_MODEL:-phi}"
+BASE_MODEL="${IA_LOCAL_BASE_MODEL:-qwen2.5-coder:1.5b-instruct}"
 CUSTOM_MODEL="${IA_LOCAL_MODEL:-ia-sysadmin}"
 
 # Détections couleurs
@@ -76,7 +76,7 @@ install_ollama() {
   echo "   Inspectez-le si vous opérez dans un contexte de sécurité strict :"
   echo "   curl -fsSL https://ollama.com/install.sh | less"
   read -rp "   Continuer ? [o/N] " _ollama_confirm
-  if [[ ! "$_ollama_confirm" =~ ^[oO](ui)?$ ]]; then
+  if [[ ! "$_ollama_confirm" =~ ^[oO]([uU][iI])?$ ]]; then
     echo "❌ Installation Ollama annulée." >&2
     exit 1
   fi
@@ -109,9 +109,10 @@ ensure_ollama_running() {
 
   echo "  ⏳ Attente du démarrage de Ollama..."
   local retries=0
+  local max_wait="${IA_LOCAL_STARTUP_TIMEOUT_SECONDS:-30}"
   until curl --silent --fail --max-time 2 -o /dev/null "$OLLAMA_URL"; do
     retries=$((retries + 1))
-    if (( retries > 30 )); then
+    if (( retries > max_wait )); then
       echo "❌ Temps d'attente dépassé. Ollama ne répond pas sur $OLLAMA_URL." >&2
       if command -v systemctl >/dev/null 2>&1; then
         echo "   Diagnostic : systemctl status ollama" >&2
@@ -151,7 +152,15 @@ setup_model() {
   fi
 
   echo "  🧠 Build du modèle custom: $CUSTOM_MODEL"
-  ollama create "$CUSTOM_MODEL" -f "${SRC_DIR}/Modelfile"
+  if ! ollama create "$CUSTOM_MODEL" -f "${SRC_DIR}/Modelfile"; then
+    echo "❌ Échec de la création du modèle '$CUSTOM_MODEL'." >&2
+    exit 1
+  fi
+  if ! model_exists "$CUSTOM_MODEL"; then
+    echo "❌ Modèle '$CUSTOM_MODEL' introuvable après création." >&2
+    exit 1
+  fi
+  echo "  ✅ Modèle '$CUSTOM_MODEL' créé avec succès."
 }
 
 install_client_script() {
@@ -160,9 +169,8 @@ install_client_script() {
 }
 
 ensure_alias() {
-  if ! grep -q "alias ia=" /etc/bash.bashrc; then
-    echo "alias ia='/usr/local/bin/ia'" >> /etc/bash.bashrc
-  fi
+  sed -i '/alias ia=/d' /etc/bash.bashrc
+  echo "alias ia='/usr/local/bin/ia'" >> /etc/bash.bashrc
 }
 
 main "$@"

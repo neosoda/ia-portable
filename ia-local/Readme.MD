@@ -45,7 +45,7 @@ export IA_LOCAL_API_URL="http://localhost:11434/api/generate"
 export IA_LOCAL_MODEL="ia-sysadmin"
 
 # Variables d'installation (au moment de sudo bash install.sh)
-export IA_LOCAL_BASE_MODEL="phi"
+export IA_LOCAL_BASE_MODEL="qwen2.5-coder:1.5b-instruct"
 export IA_LOCAL_MODEL="ia-sysadmin"
 ```
 
@@ -82,7 +82,7 @@ cat script_legacy.sh | ia "explique ce script"
 ## ⚠️ Sécurité et limites
 
 - La qualité dépend fortement du modèle local choisi.
-- CPU/RAM utilisés localement pendant l’inférence (~2-4 Go pour Phi).
+- CPU/RAM utilisés localement pendant l’inférence (~1-2 Go pour Qwen2.5-Coder 1.5B).
 - La commande proposée doit être validée humainement avant exécution.
 - Les commandes destructives (`rm -rf`, `dd of=`, `mkfs`…) déclenchent une alerte rouge et requièrent `OUI` en majuscules.
 - La syntaxe bash est vérifiée (`bash -n`) avant présentation.

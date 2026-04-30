@@ -111,9 +111,11 @@ cat script.sh | ia "explique ce script en une phrase"
 
 ```
 ~/.ia_history
-[2026-03-21 14:32:10] PROMPT="affiche les connexions SSH" | CMD="ss -tnp | grep :22" | STATUS=executed
-[2026-03-21 14:33:05] PROMPT="supprime les logs nginx" | CMD="rm -rf /var/log/nginx" | STATUS=cancelled
+[2026-03-21 14:32:10] PROMPT=affiche\ les\ connexions\ SSH | CMD=ss\ -tnp\ \|\ grep\ :22 | STATUS=executed
+[2026-03-21 14:33:05] PROMPT=supprime\ les\ logs\ nginx | CMD=rm\ -rf\ /var/log/nginx | STATUS=cancelled
 ```
+
+> ⚠️ `~/.ia_history` contient vos prompts et les commandes générées. Protégez ce fichier (`chmod 600 ~/.ia_history`) si vos requêtes contiennent des informations sensibles.
 
 ---
 
@@ -123,6 +125,7 @@ cat script.sh | ia "explique ce script en une phrase"
 sudo rm -f /usr/local/bin/ia
 sudo rm -f /etc/profile.d/ia.sh
 sudo sed -i '/alias ia=/d' /etc/bash.bashrc
+sudo rm -f /usr/local/etc/ia.conf   # ⚠️ contient la clé API en clair
 ```
 
 ---
@@ -134,7 +137,12 @@ ia-portable/
 ├── install.sh
 ├── ia.sh
 ├── Examples.MD
-└── Readme.MD
+├── Readme.MD
+└── ia-local/
+    ├── install.sh
+    ├── ia.sh
+    ├── Modelfile
+    └── Readme.MD
 ```
 
 ---
