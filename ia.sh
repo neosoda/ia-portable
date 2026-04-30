@@ -163,7 +163,7 @@ spinner() {
 
 # Appel silencieux en background
 RESPONSE_FILE=$(mktemp -t ia-local-response.XXXXXX.json)
-(curl --silent --show-error --fail-with-body --max-time 60 \
+(curl --silent --show-error --fail-with-body --max-time 120 \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD" \
   "$API_URL" > "$RESPONSE_FILE") &
