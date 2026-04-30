@@ -1,6 +1,6 @@
 # 🧠 IA Shell Assistant — Local Edition (Ollama)
 
-Version **100% locale** de l'assistant `ia`, basée sur **Ollama** et **Qwen2.5-Coder 1.5B Instruct**.
+Version **100% locale** de l'assistant `ia`, basée sur **Ollama** et **Qwen2.5** (choix entre 0.5B ou 1.5B).
 
 Objectif : générer des commandes Bash fiables en langage naturel, sans dépendance cloud, pour environnements sensibles ou isolés.
 
@@ -36,15 +36,30 @@ sudo bash install.sh
 ```
 
 Le script fait :
-1. Installe `curl` + `jq` (apt/dnf/yum)
-2. Télécharge et installe Ollama (**demande confirmation**)
-3. Démarre le service Ollama
-4. Télécharge `qwen2.5-coder:1.5b-instruct`
-5. Construit le modèle custom `ia-sysadmin`
-6. Installe `ia` dans `/usr/local/bin`
-7. Configure l'alias global
+1. **Demande de choisir un modèle** (0.5B rapide ou 1.5B puissant)
+2. Installe `curl` + `jq` (apt/dnf/yum)
+3. Télécharge et installe Ollama (**demande confirmation**)
+4. Démarre le service Ollama
+5. Télécharge le modèle choisi
+6. Construit le modèle custom `ia-sysadmin`
+7. Installe `ia` dans `/usr/local/bin`
+8. Configure l'alias global
 
-Durée estimée : **5-10 minutes** (téléchargement + première inférence).
+**Durée estimée :**
+- **Qwen 0.5B** : 3-5 minutes (340 MB)
+- **Qwen 1.5B** : 8-12 minutes (986 MB)
+
+### Choisir entre Qwen 0.5B et 1.5B
+
+| Aspect | Qwen 0.5B | Qwen 1.5B |
+|--------|-----------|-----------|
+| **Vitesse** | ⚡ 1-2 sec | 🐌 5-10 sec |
+| **Taille** | 340 MB | 986 MB |
+| **RAM** | ~500 MB | ~2 GB |
+| **Qualité** | ✅ Bon pour Bash simple | 💪 Meilleur pour requêtes complexes |
+| **Cas d'usage** | ✓ Production, serveurs légers | ✓ Dev, analyses avancées |
+
+**Recommandation :** Choisir **0.5B** par défaut (rapide, léger). Passer à **1.5B** si vous avez besoin d'une meilleure compréhension.
 
 ---
 

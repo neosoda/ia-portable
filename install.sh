@@ -14,14 +14,54 @@ BASE_MODEL="${IA_LOCAL_BASE_MODEL:-qwen2.5:0.5b-instruct}"
 CUSTOM_MODEL="${IA_LOCAL_MODEL:-ia-sysadmin}"
 
 # Détections couleurs
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+GREEN=’\033[0;32m’
+BLUE=’\033[0;34m’
+YELLOW=’\033[1;33m’
+NC=’\033[0m’
+
+choose_model() {
+  if [[ -n "${IA_LOCAL_BASE_MODEL:-}" ]]; then
+    return
+  fi
+
+  echo -e "${YELLOW}Quel modèle IA voulez-vous utiliser ?${NC}"
+  echo ""
+  echo "  1) Qwen 0.5B (par défaut)"
+  echo "     ⚡ Rapide (1-2 sec), léger (340 MB), peu de RAM"
+  echo "     ❌ Moins puissant pour requêtes complexes"
+  echo ""
+  echo "  2) Qwen 1.5B"
+  echo "     💪 Plus puissant, meilleure qualité"
+  echo "     🐌 Plus lent (5-10 sec), lourd (986 MB), plus de RAM"
+  echo ""
+  read -rp "Choix [1/2] (défaut: 1) : " model_choice
+  model_choice=${model_choice:-1}
+
+  case "$model_choice" in
+    1)
+      BASE_MODEL="qwen2.5:0.5b-instruct"
+      echo "→ Sélection : Qwen 0.5B ✓"
+      ;;
+    2)
+      BASE_MODEL="qwen2.5-coder:1.5b-instruct"
+      echo "→ Sélection : Qwen 1.5B ✓"
+      ;;
+    *)
+      echo "❌ Choix invalide, utilisation du défaut (0.5B)"
+      BASE_MODEL="qwen2.5:0.5b-instruct"
+      ;;
+  esac
+  echo ""
+}
 
 main() {
   echo -e "${BLUE}=== Installation de l’assistant IA LOCAL (Ollama) ===${NC}"
+  echo ""
 
   require_root
+
+  # 0. Choix du modèle
+  choose_model
 
   # 1. Vérif dépendances système
   install_sys_deps
