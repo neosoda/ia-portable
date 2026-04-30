@@ -1,10 +1,14 @@
-# Fichiers Windows locaux — ne pas versionner
-"Claude full.bat"
+# Fichiers Windows locaux
 Claude full.bat
 
 # Fichiers sensibles
-*.conf
 .env
+*.key
+*.pem
 
 # Logs d'audit locaux
 .ia_history
+
+# Fichiers temporaires
+*.tmp
+*.bak

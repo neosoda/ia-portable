@@ -1,31 +1,33 @@
-# 🧠 IA Shell Assistant — Local Edition (Ollama)
+# IA Shell Assistant — Local Edition (Ollama)
 
-Version **100% locale** de l'assistant `ia`, basée sur **Ollama** et **Qwen2.5** (choix entre 0.5B ou 1.5B).
+Version **100% locale** de l'assistant `ia`, basée sur **Ollama** et **Qwen2.5**.
 
 Objectif : générer des commandes Bash fiables en langage naturel, sans dépendance cloud, pour environnements sensibles ou isolés.
 
 ---
 
-## ✅ Ce que fait ce projet
+## Ce que fait ce projet
 
 - **Modèle local uniquement** : Ollama sur `http://localhost:11434` — aucune donnée n'est envoyée en dehors de la machine.
-- **Modèle custom optimisé** : `ia-sysadmin` construit depuis le `Modelfile` pour des commandes Bash simples et sûres.
+- **Choix de modèle à l'installation** : Qwen2.5 0.5B (rapide) ou 1.5B (puissant), sélection interactive.
+- **Modèle custom** : `ia-sysadmin` construit depuis le `Modelfile`, recréé automatiquement si le modèle de base change.
 - **Entrée flexible** : prompt direct OU pipe stdin (limite 2000 caractères).
 - **Mode interactif** (`-x`) : affichage + confirmation avant exécution.
-- **Sécurité renforcée** :
+- **Sécurité** :
   - Validation syntaxe Bash (`bash -n`) avant présentation.
   - Détection des commandes destructives → confirmation renforcée (`OUI` en majuscules).
   - Journal d'audit dans `~/.ia_history` (timestamp + prompt + commande + statut).
-- **Injection de contexte** : OS + UID dans le prompt pour aider le petit modèle.
+- **Injection de contexte** : OS + UID dans le prompt pour aider le modèle.
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### Prérequis
+
 - Bash 4.x+
 - `curl` et `jq`
-- Sudo/root pour l'installation
+- Sudo/root
 
 ### Installation rapide
 
@@ -35,35 +37,38 @@ cd ia-portable
 sudo bash install.sh
 ```
 
-Le script fait :
-1. **Demande de choisir un modèle** (0.5B rapide ou 1.5B puissant)
+L'installeur :
+
+1. Demande de choisir un modèle (0.5B rapide ou 1.5B puissant)
 2. Installe `curl` + `jq` (apt/dnf/yum)
-3. Télécharge et installe Ollama (**demande confirmation**)
+3. Télécharge et installe Ollama (demande confirmation)
 4. Démarre le service Ollama
 5. Télécharge le modèle choisi
 6. Construit le modèle custom `ia-sysadmin`
 7. Installe `ia` dans `/usr/local/bin`
-8. Configure l'alias global
+8. Configure l'alias global dans `/etc/bash.bashrc`
 
 **Durée estimée :**
-- **Qwen 0.5B** : 3-5 minutes (340 MB)
-- **Qwen 1.5B** : 8-12 minutes (986 MB)
+- Qwen 0.5B : 3-5 minutes (340 MB)
+- Qwen 1.5B : 8-12 minutes (986 MB)
 
 ### Choisir entre Qwen 0.5B et 1.5B
 
 | Aspect | Qwen 0.5B | Qwen 1.5B |
 |--------|-----------|-----------|
-| **Vitesse** | ⚡ 1-2 sec | 🐌 5-10 sec |
+| **Vitesse** | 1-2 sec | 5-10 sec |
 | **Taille** | 340 MB | 986 MB |
 | **RAM** | ~500 MB | ~2 GB |
-| **Qualité** | ✅ Bon pour Bash simple | 💪 Meilleur pour requêtes complexes |
-| **Cas d'usage** | ✓ Production, serveurs légers | ✓ Dev, analyses avancées |
+| **Qualité** | Bon pour Bash simple | Meilleur pour requêtes complexes |
+| **Cas d'usage** | Production, serveurs légers | Dev, analyses avancées |
 
 **Recommandation :** Choisir **0.5B** par défaut (rapide, léger). Passer à **1.5B** si vous avez besoin d'une meilleure compréhension.
 
+Si vous relancez l'installation avec un modèle différent, `ia-sysadmin` est automatiquement recréé avec la nouvelle base.
+
 ---
 
-## 💬 Utilisation
+## Utilisation
 
 ### Génération simple
 
@@ -91,9 +96,9 @@ journalctl -u nginx -n 50 | ia "résume les erreurs"
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
-### Variables d'environnement runtime
+### Variables runtime
 
 ```bash
 # URL API Ollama (défaut: http://localhost:11434/api/generate)
@@ -107,10 +112,8 @@ export IA_LOCAL_MODEL="ia-sysadmin"
 
 ```bash
 # Modèle de base Ollama (défaut: qwen2.5:0.5b-instruct)
+# Si défini, bypasse le menu de sélection interactif
 export IA_LOCAL_BASE_MODEL="qwen2.5:0.5b-instruct"
-
-# Nom du modèle custom (défaut: ia-sysadmin)
-export IA_LOCAL_MODEL="ia-sysadmin"
 
 # Timeout au démarrage Ollama (défaut: 30 secondes)
 export IA_LOCAL_STARTUP_TIMEOUT_SECONDS="60"
@@ -118,87 +121,90 @@ export IA_LOCAL_STARTUP_TIMEOUT_SECONDS="60"
 
 ---
 
-## ⚠️ Sécurité et limites
+## Sécurité et limites
 
 | Aspect | Détails |
 |--------|---------|
-| **Qualité** | Dépend du modèle local (Qwen2.5-Coder 1.5B). Pour du hardware modeste, peut être imprécis sur des requêtes complexes. |
+| **Qualité** | Dépend du modèle local. Pour du hardware modeste, peut être imprécis sur des requêtes complexes. |
 | **Ressources** | ~1-2 Go RAM + CPU pendant l'inférence. Temps de réponse : 5-30 secondes selon le hardware. |
-| **Validation humaine** | **Obligatoire** — relire la commande avant exécution (-x ou manuel). |
-| **Commandes dangereuses** | `rm -rf`, `dd of=`, `mkfs`, `chmod -R 777`, `kill -9 1`, etc. → alerte rouge + confirmation `OUI` renforcée. |
+| **Validation humaine** | Obligatoire — relire la commande avant exécution (`-x` ou manuel). |
+| **Commandes dangereuses** | `rm -rf`, `dd of=`, `mkfs`, `chmod -R 777`, `kill -9 1`, etc. → alerte rouge + confirmation `OUI`. |
 | **Syntaxe Bash** | Vérifiée (`bash -n`) avant présentation. |
 | **Audit** | `~/.ia_history` — timestamp, prompt, commande, statut (executed/cancelled). |
 
-### ⚠️ Recommandations
+### Limite connue : exécution de commandes LLM
 
-1. **Toujours relire** avant d'exécuter, même en mode `-x`.
+La commande générée est passée à `bash -c` après validation syntaxique. La détection des commandes dangereuses (`is_dangerous_command`) couvre les patterns les plus courants mais **ne peut pas couvrir tous les cas** : une commande syntaxiquement valide et hors-liste peut être destructive.
+
+**Toujours relire** la commande avant de confirmer, même en mode `-x`.
+
+### Recommandations
+
+1. **Toujours relire** avant d'exécuter.
 2. **Protéger `~/.ia_history`** si vos prompts contiennent des infos sensibles : `chmod 600 ~/.ia_history`.
 3. **Tester sur un lab** avant production.
 4. **Ollama doit être en ligne** — vérifier : `ollama list`.
+5. **Portabilité** : l'alias global est écrit dans `/etc/bash.bashrc` (Debian/Ubuntu). Sur Fedora/RHEL, ajouter manuellement dans `/etc/bashrc`.
 
 ---
 
-## 🔎 Dépannage
+## Dépannage
 
 ### Ollama n'est pas accessible
+
 ```bash
 curl -s http://localhost:11434
-# Ou relancer
 systemctl restart ollama
 ```
 
 ### Le modèle `ia-sysadmin` n'existe pas
-```bash
-ollama list  # Vérifier la présence
-ollama create ia-sysadmin -f Modelfile  # Recréer
-```
 
-### Réponse lente ou vide
-- Vérifier que `qwen2.5-coder:1.5b-instruct` est téléchargé : `ollama list`
-- Augmenter le timeout : `export IA_LOCAL_API_URL="..."`
-- Vérifier les ressources : `free -h`, `df -h`
-
-### Erreur `Modèle 'ia-sysadmin' introuvable`
 ```bash
-# Depuis le répertoire du projet :
+ollama list
 ollama create ia-sysadmin -f Modelfile
 ```
 
+### Changer de modèle après installation
+
+Relancez simplement `sudo bash install.sh`, choisissez le nouveau modèle. L'installeur détecte le changement et recrée `ia-sysadmin` automatiquement.
+
+### Réponse lente ou vide
+
+- Vérifier que le modèle est téléchargé : `ollama list`
+- Vérifier les ressources : `free -h`, `df -h`
+- Augmenter le timeout Ollama : `export IA_LOCAL_STARTUP_TIMEOUT_SECONDS=60`
+
 ---
 
-## 🧰 Désinstallation
+## Désinstallation
 
 ```bash
 sudo rm -f /usr/local/bin/ia
 sudo sed -i '/alias ia=/d' /etc/bash.bashrc
+sudo rm -f /var/lib/ia/base_model
 
-# Optionnel : supprimer Ollama
-ollama --version  # Vérifier
-# Voir https://github.com/ollama/ollama pour la désinstallation
-
-# Garder ou supprimer l'historique :
+# Supprimer les modèles Ollama (optionnel)
+ollama rm ia-sysadmin
 # rm ~/.ia_history
 ```
 
 ---
 
-## 📁 Structure du projet
+## Structure du projet
 
 ```text
 .
 ├── ia.sh              # Client principal (Ollama)
 ├── install.sh         # Installeur
 ├── Modelfile          # Définition du modèle custom ia-sysadmin
-├── README.md          # Ce fichier
-├── Readme-Local.MD    # Ancienne doc (pour référence)
+├── README.md
 ├── LICENSE
-├── .gitignore
-└── .git/
+└── .gitignore
 ```
 
 ---
 
-## 🚀 Performances attendues
+## Performances attendues
 
 | Opération | Durée |
 |-----------|-------|
@@ -207,36 +213,28 @@ ollama --version  # Vérifier
 | Validation syntaxe | < 1 sec |
 | Mode `-x` (avec confirmation) | 2-5 sec + temps utilisateur |
 
-→ Sur une machine à 4 cores/8GB RAM, les temps sont raisonnables.
-→ Sur du ARM/très faible ressource, adapté mais plus lent.
-
 ---
 
-## 📝 Exemples avancés
+## Exemples avancés
 
-### Avec diagnostic
 ```bash
+# Diagnostic nginx
 ia "diagnose nginx"
-# Retourne : systemctl status nginx
-```
+# → systemctl status nginx
 
-### Avec contexte pipe
-```bash
+# Processus le plus gourmand
 ps aux | ia "le processus qui utilise le plus de CPU"
-# Retourne : ps aux | sort -k3 -nr | head -1
-```
+# → ps aux | sort -k3 -nr | head -1
 
-### Mode destructif contrôlé
-```bash
+# Suppression contrôlée avec confirmation
 ia -x "supprime tous les fichiers .log dans /tmp de plus de 30 jours"
-# Affiche : find /tmp -name "*.log" -mtime +30 -delete
-# Alerte : COMMANDE POTENTIELLEMENT DESTRUCTIVE
-# Demande : OUI en majuscules
+# → find /tmp -name "*.log" -mtime +30 -delete
+# Alerte : COMMANDE POTENTIELLEMENT DESTRUCTIVE → OUI requis
 ```
 
 ---
 
-## 📄 Licence
+## Licence
 
 MIT — Libre d'utilisation, modification et distribution.
 
@@ -244,7 +242,7 @@ MIT — Libre d'utilisation, modification et distribution.
 
 ---
 
-## 🔗 Ressources
+## Ressources
 
 - [Ollama Documentation](https://github.com/ollama/ollama)
 - [Qwen2.5-Coder Model](https://huggingface.co/Qwen/Qwen2.5-Coder)
