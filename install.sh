@@ -156,19 +156,6 @@ setup_model() {
     echo "❌ Échec de la création du modèle '$CUSTOM_MODEL'." >&2
     exit 1
   fi
-
-  echo "  ⏳ Attente de l'enregistrement du modèle..."
-  local retries=0
-  local max_retries=10
-  until model_exists "$CUSTOM_MODEL" || (( retries >= max_retries )); do
-    sleep 1
-    retries=$((retries + 1))
-  done
-
-  if ! model_exists "$CUSTOM_MODEL"; then
-    echo "❌ Modèle '$CUSTOM_MODEL' introuvable après création." >&2
-    exit 1
-  fi
   echo "  ✅ Modèle '$CUSTOM_MODEL' créé avec succès."
 }
 
