@@ -138,7 +138,7 @@ if ! curl --silent --show-error --fail --max-time 5 -o /dev/null "${API_URL%/api
   exit 1
 fi
 
-if ! ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -Fq "$MODEL"; then
+if ! ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -Fxq "$MODEL"; then
   echo "❌ Erreur : modèle '$MODEL' introuvable dans Ollama." >&2
   echo "   Lance : ollama pull $MODEL" >&2
   exit 1

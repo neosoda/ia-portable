@@ -37,6 +37,11 @@ choose_model() {
   read -rp "Choix [1/2] (défaut: 1) : " model_choice
   model_choice=${model_choice:-1}
 
+  if ! [[ "$model_choice" =~ ^[12]$ ]]; then
+    echo "❌ Choix invalide (doit être 1 ou 2), utilisation du défaut (0.5B)"
+    model_choice=1
+  fi
+
   case "$model_choice" in
     1)
       BASE_MODEL="qwen2.5:0.5b-instruct"
@@ -45,10 +50,6 @@ choose_model() {
     2)
       BASE_MODEL="qwen2.5-coder:1.5b-instruct"
       echo "→ Sélection : Qwen 1.5B ✓"
-      ;;
-    *)
-      echo "❌ Choix invalide, utilisation du défaut (0.5B)"
-      BASE_MODEL="qwen2.5:0.5b-instruct"
       ;;
   esac
   echo ""
@@ -123,10 +124,9 @@ install_ollama() {
 
   local ollama_script
   ollama_script=$(mktemp -t ollama-install.XXXXXX.sh)
-  trap "rm -f '$ollama_script'" RETURN
+  trap "rm -f '$ollama_script'" RETURN EXIT
   curl -fsSL https://ollama.com/install.sh -o "$ollama_script"
   bash "$ollama_script"
-  rm -f "$ollama_script"
 
   if ! command -v ollama >/dev/null 2>&1; then
     echo "❌ Ollama n'est pas disponible après installation." >&2
@@ -192,7 +192,12 @@ setup_model() {
   fi
 
   echo "  🧠 Build du modèle custom: $CUSTOM_MODEL"
-  if ! ollama create "$CUSTOM_MODEL" -f "${SRC_DIR}/Modelfile"; then
+  local modelfile_tmp
+  modelfile_tmp=$(mktemp -t modelfile.XXXXXX)
+  trap "rm -f '$modelfile_tmp'" RETURN
+  sed "1s|^FROM.*|FROM $BASE_MODEL|" "${SRC_DIR}/Modelfile" > "$modelfile_tmp"
+
+  if ! ollama create "$CUSTOM_MODEL" -f "$modelfile_tmp"; then
     echo "❌ Échec de la création du modèle '$CUSTOM_MODEL'." >&2
     exit 1
   fi

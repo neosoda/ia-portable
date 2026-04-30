@@ -106,8 +106,8 @@ export IA_LOCAL_MODEL="ia-sysadmin"
 ### Variables d'installation
 
 ```bash
-# Modèle de base Ollama (défaut: qwen2.5-coder:1.5b-instruct)
-export IA_LOCAL_BASE_MODEL="qwen2.5-coder:1.5b-instruct"
+# Modèle de base Ollama (défaut: qwen2.5:0.5b-instruct)
+export IA_LOCAL_BASE_MODEL="qwen2.5:0.5b-instruct"
 
 # Nom du modèle custom (défaut: ia-sysadmin)
 export IA_LOCAL_MODEL="ia-sysadmin"
