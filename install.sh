@@ -124,7 +124,7 @@ install_ollama() {
 
   local ollama_script
   ollama_script=$(mktemp -t ollama-install.XXXXXX.sh)
-  trap "rm -f '$ollama_script'" RETURN EXIT
+  trap "rm -f '$ollama_script'" RETURN
   curl -fsSL https://ollama.com/install.sh -o "$ollama_script"
   bash "$ollama_script"
 
@@ -166,8 +166,10 @@ ensure_ollama_running() {
 
 model_exists() {
   local model="$1"
-  ollama list | awk 'NR>1 {print $1}' | grep -Fxq "$model"
+  ollama list | awk 'NR>1 {print $1}' | grep -Fq "$model"
 }
+
+IA_STATE_FILE="/var/lib/ia/base_model"
 
 setup_model() {
   echo -e "${BLUE}→ Configuration du modèle IA (première exécution: quelques minutes)...${NC}"
@@ -181,9 +183,17 @@ setup_model() {
     ollama pull "$BASE_MODEL"
   fi
 
-  if model_exists "$CUSTOM_MODEL"; then
-    echo "  ✅ Modèle custom déjà présent: $CUSTOM_MODEL"
+  local stored_base=""
+  [[ -f "$IA_STATE_FILE" ]] && stored_base=$(cat "$IA_STATE_FILE")
+
+  if model_exists "$CUSTOM_MODEL" && [[ "$stored_base" == "$BASE_MODEL" ]]; then
+    echo "  ✅ Modèle custom déjà présent: $CUSTOM_MODEL ($BASE_MODEL)"
     return
+  fi
+
+  if model_exists "$CUSTOM_MODEL" && [[ -n "$stored_base" && "$stored_base" != "$BASE_MODEL" ]]; then
+    echo "  🔄 Base changée ($stored_base → $BASE_MODEL), recréation de $CUSTOM_MODEL..."
+    ollama rm "$CUSTOM_MODEL" 2>/dev/null || true
   fi
 
   if [[ ! -f "${SRC_DIR}/Modelfile" ]]; then
@@ -201,7 +211,9 @@ setup_model() {
     echo "❌ Échec de la création du modèle '$CUSTOM_MODEL'." >&2
     exit 1
   fi
-  echo "  ✅ Modèle '$CUSTOM_MODEL' créé avec succès."
+  mkdir -p "$(dirname "$IA_STATE_FILE")"
+  echo "$BASE_MODEL" > "$IA_STATE_FILE"
+  echo "  ✅ Modèle '$CUSTOM_MODEL' créé avec succès ($BASE_MODEL)."
 }
 
 install_client_script() {
