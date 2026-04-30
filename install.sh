@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # =====================================================
-# Installeur portable — IA Shell Assistant (OpenRouter)
-# Compatible Debian 12/13, Ubuntu 22+, Rocky, etc.
+# Installeur IA Local (Ollama Edition)
 # =====================================================
 
 set -euo pipefail
@@ -10,21 +9,38 @@ INSTALL_DIR="/usr/local/bin"
 SCRIPT_NAME="ia"
 SRC_DIR="$(dirname "$(realpath "$0")")"
 SCRIPT_PATH="${INSTALL_DIR}/${SCRIPT_NAME}"
-CONFIG_FILE="/usr/local/etc/ia.conf"
-PROFILE_FILE="/etc/profile.d/ia.sh"
+OLLAMA_URL="http://127.0.0.1:11434"
+BASE_MODEL="${IA_LOCAL_BASE_MODEL:-qwen2.5-coder:1.5b-instruct}"
+CUSTOM_MODEL="${IA_LOCAL_MODEL:-ia-sysadmin}"
+
+# Détections couleurs
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
 main() {
-  echo "=== Installation de l’assistant IA ==="
+  echo -e "${BLUE}=== Installation de l’assistant IA LOCAL (Ollama) ===${NC}"
 
   require_root
-  install_dependencies
-  install_script
-  ensure_alias
-  ensure_api_key
-  verify_installation
 
-  echo "✅ Installation terminée !"
-  echo "Tu peux maintenant exécuter :  ia 'ta question'"
+  # 1. Vérif dépendances système
+  install_sys_deps
+
+  # 2. Installation Ollama
+  install_ollama
+
+  # 3. Préparation du modèle IA
+  setup_model
+
+  # 4. Installation du script client
+  install_client_script
+
+  # 5. Alias
+  ensure_alias
+
+  echo -e "\n${GREEN}✅ Installation terminée !${NC}"
+  echo "Tout est prêt : Ollama + modèle '${CUSTOM_MODEL}' + commande 'ia'."
+  echo "Essaie : ia \"combien de RAM libre ?\""
 }
 
 require_root() {
@@ -34,97 +50,127 @@ require_root() {
   fi
 }
 
-install_dependencies() {
-  echo "→ Vérification des dépendances..."
-  if command -v apt-get >/dev/null; then
+install_sys_deps() {
+  echo "→ Vérification dépendances système (curl, jq)..."
+  if command -v apt-get >/dev/null 2>&1; then
     apt-get update -qq
     apt-get install -y curl jq >/dev/null
-  elif command -v dnf >/dev/null; then
+  elif command -v dnf >/dev/null 2>&1; then
     dnf install -y curl jq >/dev/null
-  elif command -v yum >/dev/null; then
+  elif command -v yum >/dev/null 2>&1; then
     yum install -y curl jq >/dev/null
   else
-    echo "⚠️  Gestionnaire de paquets inconnu. Assurez-vous d'avoir 'curl' et 'jq' installés manuellement."
+    echo "❌ Gestionnaire de paquets non supporté (apt/dnf/yum attendu)." >&2
+    exit 1
   fi
 }
 
-install_script() {
-  echo "→ Installation dans ${INSTALL_DIR}..."
+install_ollama() {
+  if command -v ollama >/dev/null 2>&1; then
+    echo "→ Ollama est déjà installé."
+    return
+  fi
+
+  echo "→ Téléchargement et installation de Ollama..."
+  echo "⚠️  Le script d'installation Ollama sera téléchargé depuis ollama.com et exécuté en root."
+  echo "   Inspectez-le si vous opérez dans un contexte de sécurité strict :"
+  echo "   curl -fsSL https://ollama.com/install.sh | less"
+  read -rp "   Continuer ? [o/N] " _ollama_confirm
+  if [[ ! "$_ollama_confirm" =~ ^[oO]([uU][iI])?$ ]]; then
+    echo "❌ Installation Ollama annulée." >&2
+    exit 1
+  fi
+
+  local ollama_script
+  ollama_script=$(mktemp -t ollama-install.XXXXXX.sh)
+  trap "rm -f '$ollama_script'" RETURN
+  curl -fsSL https://ollama.com/install.sh -o "$ollama_script"
+  bash "$ollama_script"
+  rm -f "$ollama_script"
+
+  if ! command -v ollama >/dev/null 2>&1; then
+    echo "❌ Ollama n'est pas disponible après installation." >&2
+    exit 1
+  fi
+}
+
+ensure_ollama_running() {
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable --now ollama >/dev/null 2>&1 || true
+    if ! systemctl is-active --quiet ollama; then
+      systemctl start ollama
+    fi
+  else
+    if ! pgrep -f "ollama serve" >/dev/null 2>&1; then
+      nohup ollama serve >/var/log/ollama.log 2>&1 &
+      sleep 1
+    fi
+  fi
+
+  echo "  ⏳ Attente du démarrage de Ollama..."
+  local retries=0
+  local max_wait="${IA_LOCAL_STARTUP_TIMEOUT_SECONDS:-30}"
+  until curl --silent --fail --max-time 2 -o /dev/null "$OLLAMA_URL"; do
+    retries=$((retries + 1))
+    if (( retries > max_wait )); then
+      echo "❌ Temps d'attente dépassé. Ollama ne répond pas sur $OLLAMA_URL." >&2
+      if command -v systemctl >/dev/null 2>&1; then
+        echo "   Diagnostic : systemctl status ollama" >&2
+      fi
+      exit 1
+    fi
+    sleep 1
+  done
+  echo "  ✅ Ollama est en ligne."
+}
+
+model_exists() {
+  local model="$1"
+  ollama list | awk 'NR>1 {print $1}' | grep -Fxq "$model"
+}
+
+setup_model() {
+  echo -e "${BLUE}→ Configuration du modèle IA (première exécution: quelques minutes)...${NC}"
+
+  ensure_ollama_running
+
+  if model_exists "$BASE_MODEL"; then
+    echo "  ✅ Modèle de base déjà présent: $BASE_MODEL"
+  else
+    echo "  ⏬ Pull du modèle de base: $BASE_MODEL"
+    ollama pull "$BASE_MODEL"
+  fi
+
+  if model_exists "$CUSTOM_MODEL"; then
+    echo "  ✅ Modèle custom déjà présent: $CUSTOM_MODEL"
+    return
+  fi
+
+  if [[ ! -f "${SRC_DIR}/Modelfile" ]]; then
+    echo "❌ Erreur : Modelfile introuvable dans ${SRC_DIR}" >&2
+    exit 1
+  fi
+
+  echo "  🧠 Build du modèle custom: $CUSTOM_MODEL"
+  if ! ollama create "$CUSTOM_MODEL" -f "${SRC_DIR}/Modelfile"; then
+    echo "❌ Échec de la création du modèle '$CUSTOM_MODEL'." >&2
+    exit 1
+  fi
+  if ! model_exists "$CUSTOM_MODEL"; then
+    echo "❌ Modèle '$CUSTOM_MODEL' introuvable après création." >&2
+    exit 1
+  fi
+  echo "  ✅ Modèle '$CUSTOM_MODEL' créé avec succès."
+}
+
+install_client_script() {
+  echo "→ Installation du client dans ${INSTALL_DIR}..."
   install -m 0755 "${SRC_DIR}/ia.sh" "$SCRIPT_PATH"
 }
 
 ensure_alias() {
   sed -i '/alias ia=/d' /etc/bash.bashrc
   echo "alias ia='/usr/local/bin/ia'" >> /etc/bash.bashrc
-}
-
-verify_installation() {
-  if [[ ! -x "$SCRIPT_PATH" ]]; then
-    echo "❌ Échec : le script ia n'est pas installé dans $SCRIPT_PATH." >&2
-    exit 1
-  fi
-  echo "→ Vérification : $SCRIPT_PATH ✓"
-}
-
-extract_api_key_from_file() {
-  local file="$1"
-
-  if [[ ! -r "$file" ]]; then
-    return 0
-  fi
-
-  awk '
-    /^[[:space:]]*(#|$)/ { next }
-    {
-      row=$0
-      sub(/^[[:space:]]*/, "", row)
-      sub(/^export[[:space:]]+/, "", row)
-      if (row ~ /^OPENROUTER_API_KEY[[:space:]]*=/) {
-        value=row
-        sub(/^[^=]*=/, "", value)
-        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-        gsub(/^"|"$/, "", value)
-        gsub(/^'\''|'\''$/, "", value)
-        if (length(value) > 0) {
-          print value
-        }
-      }
-    }
-  ' "$file" | tail -n1
-}
-
-ensure_api_key() {
-  local existing_key=""
-
-  if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
-    existing_key="$OPENROUTER_API_KEY"
-  elif [[ -f "$CONFIG_FILE" ]]; then
-    existing_key="$(extract_api_key_from_file "$CONFIG_FILE")"
-  fi
-
-  if [[ -n "$existing_key" ]]; then
-    return 0
-  fi
-
-  read -rsp "Entre ta clé API OpenRouter : " key
-  echo
-  if [[ -z "$key" ]]; then
-    echo "⚠️  Clé API non définie. Pense à configurer OPENROUTER_API_KEY manuellement." >&2
-    return 0
-  fi
-
-  mkdir -p "$(dirname "$CONFIG_FILE")"
-  (umask 077; printf "export OPENROUTER_API_KEY='%s'\n" "$key" > "$CONFIG_FILE")
-
-  cat > "$PROFILE_FILE" <<EOF_PROFILE
-# shellcheck shell=sh
-# Charge la configuration IA pour toutes les sessions utilisateur
-[ -r "$CONFIG_FILE" ] && . "$CONFIG_FILE"
-EOF_PROFILE
-  chmod 644 "$PROFILE_FILE"
-
-  echo "🔒 Clé stockée dans $CONFIG_FILE (permissions 600)"
-  echo "🌍 Configuration chargée globalement via $PROFILE_FILE"
 }
 
 main "$@"

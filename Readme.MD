@@ -1,24 +1,33 @@
-# 🧠 IA Shell Assistant — Portable Edition (OpenRouter avec fallback)
+# 🧠 IA Shell Assistant — Local Edition (Ollama)
 
-Assistant Bash orienté SRE/sysadmin pour générer des commandes Linux en langage naturel.
-Cette édition utilise OpenRouter (API Chat Completions compatible) avec fallback automatique multi-modèles.
+Version **100% locale** de l'assistant `ia`, basée sur **Ollama** et **Qwen2.5-Coder 1.5B Instruct**.
+
+Objectif : générer des commandes Bash fiables en langage naturel, sans dépendance cloud, pour environnements sensibles ou isolés.
 
 ---
 
-## ✅ Ce que fait le projet
+## ✅ Ce que fait ce projet
 
-- Génère une commande Bash unique (sans markdown).
-- Injecte un contexte système minimal (OS + UID) dans le prompt.
-- Accepte les entrées via pipe (`stdin`) pour analyser logs/code (limite 2000 caractères).
-- Propose un mode interactif `-x` avec explication avant exécution.
-- Fonctionne avec OpenRouter par défaut **ou** un backend compatible (`OPENROUTER_API_URL`).
-- Valide la syntaxe bash et la longueur de la réponse avant toute présentation.
-- Détecte les commandes potentiellement destructives et demande une confirmation renforcée (`OUI`).
-- Journalise chaque exécution dans `~/.ia_history` (audit trail).
+- **Modèle local uniquement** : Ollama sur `http://localhost:11434` — aucune donnée n'est envoyée en dehors de la machine.
+- **Modèle custom optimisé** : `ia-sysadmin` construit depuis le `Modelfile` pour des commandes Bash simples et sûres.
+- **Entrée flexible** : prompt direct OU pipe stdin (limite 2000 caractères).
+- **Mode interactif** (`-x`) : affichage + confirmation avant exécution.
+- **Sécurité renforcée** :
+  - Validation syntaxe Bash (`bash -n`) avant présentation.
+  - Détection des commandes destructives → confirmation renforcée (`OUI` en majuscules).
+  - Journal d'audit dans `~/.ia_history` (timestamp + prompt + commande + statut).
+- **Injection de contexte** : OS + UID dans le prompt pour aider le petit modèle.
 
 ---
 
 ## 📦 Installation
+
+### Prérequis
+- Bash 4.x+
+- `curl` et `jq`
+- Sudo/root pour l'installation
+
+### Installation rapide
 
 ```bash
 git clone https://github.com/neosoda/ia-portable.git
@@ -26,47 +35,16 @@ cd ia-portable
 sudo bash install.sh
 ```
 
-L’installateur :
+Le script fait :
+1. Installe `curl` + `jq` (apt/dnf/yum)
+2. Télécharge et installe Ollama (**demande confirmation**)
+3. Démarre le service Ollama
+4. Télécharge `qwen2.5-coder:1.5b-instruct`
+5. Construit le modèle custom `ia-sysadmin`
+6. Installe `ia` dans `/usr/local/bin`
+7. Configure l'alias global
 
-- installe `curl` + `jq` (apt/dnf/yum),
-- copie `ia.sh` vers `/usr/local/bin/ia`,
-- ajoute `alias ia='/usr/local/bin/ia'` dans `/etc/bash.bashrc`,
-- configure `/usr/local/etc/ia.conf` + chargement global via `/etc/profile.d/ia.sh`.
-
----
-
-## 🔐 Configuration
-
-Fichier principal : `/usr/local/etc/ia.conf`
-
-Exemple :
-
-```bash
-export OPENROUTER_API_KEY="<SECRET>"
-# Optionnel
-# export OPENROUTER_API_URL="https://openrouter.ai/api/v1/chat/completions"
-# export IA_API_TIMEOUT_SECONDS="10"
-```
-
-Variables supportées :
-
-- `OPENROUTER_API_KEY` : clé API OpenRouter.
-- `OPENROUTER_API_URL` : endpoint API Chat Completions (défaut: `https://openrouter.ai/api/v1/chat/completions`).
-- `IA_API_TIMEOUT_SECONDS` : timeout global par requête (défaut: `10`).
-- `IA_MAX_RETRIES_PER_MODEL` : nombre de tentatives par modèle sur erreur 429 (défaut: `2`).
-- `IA_RETRY_DELAY_SECONDS` : délai entre les tentatives (défaut: `1`).
-- `IA_VERBOSE_ERRORS` : affiche la réponse brute de l'API en cas d'erreur (défaut: `0`).
-
-Fallback automatique sur cette liste (ordre fixe) :
-1. `mistralai/mistral-small-3.1-24b-instruct:free`
-2. `openai/gpt-oss-20b:free`
-3. `google/gemma-3-12b-it:free`
-4. `z-ai/glm-4.5-air:free`
-5. `qwen/qwen3-4b:free`
-6. `google/gemma-3-4b-it:free`
-7. `meta-llama/llama-3.2-3b-instruct:free`
-8. `google/gemma-3n-e4b-it:free`
-9. `google/gemma-3n-e2b-it:free`
+Durée estimée : **5-10 minutes** (téléchargement + première inférence).
 
 ---
 
@@ -75,47 +53,101 @@ Fallback automatique sur cette liste (ordre fixe) :
 ### Génération simple
 
 ```bash
-ia "affiche les connexions SSH actives"
+ia "liste les connexions SSH actives"
+ia "combien de RAM libre ?"
+ia "affiche les 10 plus gros fichiers"
 ```
 
 ### Mode interactif (`-x`)
 
 ```bash
-ia -x "supprime les fichiers .tmp de plus de 7 jours dans /tmp"
+ia -x "crée /backup et déplace les logs nginx dedans"
 ```
 
-Cycle interactif : afficher → expliquer (`?`) → exécuter (`o`) ou annuler.
-
-Pour les commandes détectées comme **destructives** (ex: `rm -rf`, `dd`, `mkfs`…), la confirmation est renforcée : il faut taper `OUI` en majuscules. L'exécution utilise `bash -c` (sous-shell isolé) et non `eval`.
+Affiche la commande proposée, permet de relire, puis exécute ou annule.
 
 ### Analyse via pipe
 
 ```bash
-tail -n 100 /var/log/syslog | ia "trouve l'erreur principale"
-cat script.sh | ia "explique ce script en une phrase"
+tail -100 /var/log/syslog | ia "trouve l'erreur"
+cat script_legacy.sh | ia "explique ce script"
+journalctl -u nginx -n 50 | ia "résume les erreurs"
+```
+
+---
+
+## ⚙️ Configuration
+
+### Variables d'environnement runtime
+
+```bash
+# URL API Ollama (défaut: http://localhost:11434/api/generate)
+export IA_LOCAL_API_URL="http://localhost:11434/api/generate"
+
+# Modèle utilisé (défaut: ia-sysadmin)
+export IA_LOCAL_MODEL="ia-sysadmin"
+```
+
+### Variables d'installation
+
+```bash
+# Modèle de base Ollama (défaut: qwen2.5-coder:1.5b-instruct)
+export IA_LOCAL_BASE_MODEL="qwen2.5-coder:1.5b-instruct"
+
+# Nom du modèle custom (défaut: ia-sysadmin)
+export IA_LOCAL_MODEL="ia-sysadmin"
+
+# Timeout au démarrage Ollama (défaut: 30 secondes)
+export IA_LOCAL_STARTUP_TIMEOUT_SECONDS="60"
 ```
 
 ---
 
 ## ⚠️ Sécurité et limites
 
-- **La commande générée reste non fiable par défaut** : la relire avant exécution.
-- En mode `-x`, l’exécution se fait via `bash -c` (sous-shell isolé) et non `eval`.
-- Les commandes destructives (`rm -rf`, `dd of=`, `mkfs`, pipe vers `bash`…) déclenchent une alerte rouge et requièrent `OUI` en majuscules.
-- La syntaxe bash est vérifiée (`bash -n`) avant présentation — une commande syntaxiquement invalide est rejetée.
-- La clé API est stockée en `0600` (`/usr/local/etc/ia.conf`) pour limiter l’exposition locale du secret.
-- En entrée pipe, seules les 2000 premiers caractères sont utilisés.
-- Chaque exécution est journalisée dans `~/.ia_history` (timestamp, prompt, commande, statut).
+| Aspect | Détails |
+|--------|---------|
+| **Qualité** | Dépend du modèle local (Qwen2.5-Coder 1.5B). Pour du hardware modeste, peut être imprécis sur des requêtes complexes. |
+| **Ressources** | ~1-2 Go RAM + CPU pendant l'inférence. Temps de réponse : 5-30 secondes selon le hardware. |
+| **Validation humaine** | **Obligatoire** — relire la commande avant exécution (-x ou manuel). |
+| **Commandes dangereuses** | `rm -rf`, `dd of=`, `mkfs`, `chmod -R 777`, `kill -9 1`, etc. → alerte rouge + confirmation `OUI` renforcée. |
+| **Syntaxe Bash** | Vérifiée (`bash -n`) avant présentation. |
+| **Audit** | `~/.ia_history` — timestamp, prompt, commande, statut (executed/cancelled). |
 
-### Journal d’audit
+### ⚠️ Recommandations
 
+1. **Toujours relire** avant d'exécuter, même en mode `-x`.
+2. **Protéger `~/.ia_history`** si vos prompts contiennent des infos sensibles : `chmod 600 ~/.ia_history`.
+3. **Tester sur un lab** avant production.
+4. **Ollama doit être en ligne** — vérifier : `ollama list`.
+
+---
+
+## 🔎 Dépannage
+
+### Ollama n'est pas accessible
+```bash
+curl -s http://localhost:11434
+# Ou relancer
+systemctl restart ollama
 ```
-~/.ia_history
-[2026-03-21 14:32:10] PROMPT=affiche\ les\ connexions\ SSH | CMD=ss\ -tnp\ \|\ grep\ :22 | STATUS=executed
-[2026-03-21 14:33:05] PROMPT=supprime\ les\ logs\ nginx | CMD=rm\ -rf\ /var/log/nginx | STATUS=cancelled
+
+### Le modèle `ia-sysadmin` n'existe pas
+```bash
+ollama list  # Vérifier la présence
+ollama create ia-sysadmin -f Modelfile  # Recréer
 ```
 
-> ⚠️ `~/.ia_history` contient vos prompts et les commandes générées. Protégez ce fichier (`chmod 600 ~/.ia_history`) si vos requêtes contiennent des informations sensibles.
+### Réponse lente ou vide
+- Vérifier que `qwen2.5-coder:1.5b-instruct` est téléchargé : `ollama list`
+- Augmenter le timeout : `export IA_LOCAL_API_URL="..."`
+- Vérifier les ressources : `free -h`, `df -h`
+
+### Erreur `Modèle 'ia-sysadmin' introuvable`
+```bash
+# Depuis le répertoire du projet :
+ollama create ia-sysadmin -f Modelfile
+```
 
 ---
 
@@ -123,38 +155,86 @@ cat script.sh | ia "explique ce script en une phrase"
 
 ```bash
 sudo rm -f /usr/local/bin/ia
-sudo rm -f /etc/profile.d/ia.sh
 sudo sed -i '/alias ia=/d' /etc/bash.bashrc
-sudo rm -f /usr/local/etc/ia.conf   # ⚠️ contient la clé API en clair
+
+# Optionnel : supprimer Ollama
+ollama --version  # Vérifier
+# Voir https://github.com/ollama/ollama pour la désinstallation
+
+# Garder ou supprimer l'historique :
+# rm ~/.ia_history
 ```
 
 ---
 
-## 📁 Structure
+## 📁 Structure du projet
 
 ```text
-ia-portable/
-├── install.sh
-├── ia.sh
-├── Examples.MD
-├── Readme.MD
-└── ia-local/
-    ├── install.sh
-    ├── ia.sh
-    ├── Modelfile
-    └── Readme.MD
+.
+├── ia.sh              # Client principal (Ollama)
+├── install.sh         # Installeur
+├── Modelfile          # Définition du modèle custom ia-sysadmin
+├── README.md          # Ce fichier
+├── Readme-Local.MD    # Ancienne doc (pour référence)
+├── LICENSE
+├── .gitignore
+└── .git/
 ```
 
 ---
 
-## 🛠️ Dépendances
+## 🚀 Performances attendues
 
-- Bash
-- `curl`
-- `jq`
-- `timeout` (coreutils)
+| Opération | Durée |
+|-----------|-------|
+| Première inférence | 5-10 sec |
+| Inférences suivantes | 2-5 sec |
+| Validation syntaxe | < 1 sec |
+| Mode `-x` (avec confirmation) | 2-5 sec + temps utilisateur |
+
+→ Sur une machine à 4 cores/8GB RAM, les temps sont raisonnables.
+→ Sur du ARM/très faible ressource, adapté mais plus lent.
 
 ---
 
+## 📝 Exemples avancés
+
+### Avec diagnostic
+```bash
+ia "diagnose nginx"
+# Retourne : systemctl status nginx
+```
+
+### Avec contexte pipe
+```bash
+ps aux | ia "le processus qui utilise le plus de CPU"
+# Retourne : ps aux | sort -k3 -nr | head -1
+```
+
+### Mode destructif contrôlé
+```bash
+ia -x "supprime tous les fichiers .log dans /tmp de plus de 30 jours"
+# Affiche : find /tmp -name "*.log" -mtime +30 -delete
+# Alerte : COMMANDE POTENTIELLEMENT DESTRUCTIVE
+# Demande : OUI en majuscules
+```
+
+---
+
+## 📄 Licence
+
+MIT — Libre d'utilisation, modification et distribution.
+
 **Auteur :** Neosoda
-**Licence :** MIT
+
+---
+
+## 🔗 Ressources
+
+- [Ollama Documentation](https://github.com/ollama/ollama)
+- [Qwen2.5-Coder Model](https://huggingface.co/Qwen/Qwen2.5-Coder)
+- [Bash Security Guidelines](https://mywiki.wooledge.org/)
+
+---
+
+**Dernière mise à jour :** 2026-04-30
