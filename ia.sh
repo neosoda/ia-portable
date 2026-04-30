@@ -188,7 +188,7 @@ if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
 fi
 
 # Nettoyage du markdown résiduel dans la réponse
-CMD_CLEAN=$(echo "$RESPONSE" | sed 's/^```bash//;s/^```//;s/```$//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+CMD_CLEAN=$(echo "$RESPONSE" | sed 's/```bash//g;s/```//g' | grep -v '^[[:space:]]*$' | head -1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
 if [[ -z "$CMD_CLEAN" ]]; then
   echo "❌ Erreur : commande vide après nettoyage de la réponse IA." >&2
