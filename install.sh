@@ -14,10 +14,10 @@ BASE_MODEL="${IA_LOCAL_BASE_MODEL:-qwen2.5:0.5b-instruct}"
 CUSTOM_MODEL="${IA_LOCAL_MODEL:-ia-sysadmin}"
 
 # Détections couleurs
-GREEN=’\033[0;32m’
-BLUE=’\033[0;34m’
-YELLOW=’\033[1;33m’
-NC=’\033[0m’
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
 choose_model() {
   if [[ -n "${IA_LOCAL_BASE_MODEL:-}" ]]; then
@@ -56,7 +56,7 @@ choose_model() {
 }
 
 main() {
-  echo -e "${BLUE}=== Installation de l’assistant IA LOCAL (Ollama) ===${NC}"
+  echo -e "${BLUE}=== Installation de l'assistant IA LOCAL (Ollama) ===${NC}"
   echo ""
 
   require_root

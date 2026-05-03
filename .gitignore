@@ -12,3 +12,4 @@ Claude full.bat
 # Fichiers temporaires
 *.tmp
 *.bak
+.aider*
