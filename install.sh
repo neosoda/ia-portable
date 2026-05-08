@@ -19,6 +19,35 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+PROVIDER=""
+OPENROUTER_API_KEY=""
+
+choose_provider() {
+  if [[ -n "${IA_PROVIDER:-}" ]]; then
+    PROVIDER="$IA_PROVIDER"
+    return
+  fi
+
+  echo -e "${YELLOW}Quel fournisseur IA voulez-vous utiliser ?${NC}"
+  echo ""
+  echo "  1) Local (Ollama) - Par défaut, 100% privé, nécessite un peu de CPU/RAM"
+  echo "  2) Cloud (OpenRouter) - Réponses rapides, très performant, nécessite une clé API"
+  echo ""
+  read -rp "Choix [1/2] (défaut: 1) : " provider_choice
+  provider_choice=${provider_choice:-1}
+
+  if [[ "$provider_choice" == "2" ]]; then
+    PROVIDER="openrouter"
+    echo "→ Sélection : OpenRouter (Cloud) ✓"
+    read -rp "Clé API OpenRouter (laissez vide pour la configurer plus tard) : " api_key
+    OPENROUTER_API_KEY="$api_key"
+  else
+    PROVIDER="ollama"
+    echo "→ Sélection : Ollama (Local) ✓"
+  fi
+  echo ""
+}
+
 choose_model() {
   if [[ -n "${IA_LOCAL_BASE_MODEL:-}" ]]; then
     return
@@ -56,32 +85,45 @@ choose_model() {
 }
 
 main() {
-  echo -e "${BLUE}=== Installation de l'assistant IA LOCAL (Ollama) ===${NC}"
+  echo -e "${BLUE}=== Installation de l'assistant IA ===${NC}"
   echo ""
 
   require_root
 
-  # 0. Choix du modèle
-  choose_model
+  # 0. Choix du fournisseur
+  choose_provider
 
   # 1. Vérif dépendances système
   install_sys_deps
 
-  # 2. Installation Ollama
-  install_ollama
+  if [[ "$PROVIDER" == "ollama" ]]; then
+    # 2. Choix du modèle local
+    choose_model
 
-  # 3. Préparation du modèle IA
-  setup_model
+    # 3. Installation Ollama
+    install_ollama
 
-  # 4. Installation du script client
+    # 4. Préparation du modèle IA
+    setup_model
+  fi
+
+  # 5. Installation du script client
   install_client_script
 
-  # 5. Alias
+  # 6. Alias
   ensure_alias
+  
+  # 7. Configuration utilisateur
+  write_config
 
   echo -e "\n${GREEN}✅ Installation terminée !${NC}"
-  echo "Tout est prêt : Ollama + modèle '${CUSTOM_MODEL}' + commande 'ia'."
+  if [[ "$PROVIDER" == "ollama" ]]; then
+    echo "Tout est prêt : Ollama + modèle '${CUSTOM_MODEL}' + commande 'ia'."
+  else
+    echo "Tout est prêt : OpenRouter + commande 'ia'."
+  fi
   echo "Essaie : ia \"combien de RAM libre ?\""
+  echo "Pour configurer ou changer de fournisseur plus tard, tapez : ia --config"
 }
 
 require_root() {
@@ -224,6 +266,26 @@ install_client_script() {
 ensure_alias() {
   sed -i '/alias ia=/d' /etc/bash.bashrc
   echo "alias ia='/usr/local/bin/ia'" >> /etc/bash.bashrc
+}
+
+write_config() {
+  local real_user="${SUDO_USER:-$USER}"
+  local real_home
+  real_home=$(eval echo "~$real_user")
+  local config_file="${real_home}/.ia_config"
+
+  if [[ "$PROVIDER" == "openrouter" ]]; then
+    echo "PROVIDER=\"openrouter\"" > "$config_file"
+    if [[ -n "$OPENROUTER_API_KEY" ]]; then
+      echo "OPENROUTER_API_KEY=\"$OPENROUTER_API_KEY\"" >> "$config_file"
+    fi
+    chown "$real_user:$real_user" "$config_file"
+    chmod 600 "$config_file"
+  elif [[ "$PROVIDER" == "ollama" ]]; then
+    echo "PROVIDER=\"ollama\"" > "$config_file"
+    chown "$real_user:$real_user" "$config_file"
+    chmod 600 "$config_file"
+  fi
 }
 
 main "$@"

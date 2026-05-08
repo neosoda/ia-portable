@@ -1,16 +1,16 @@
-# IA Shell Assistant — Local Edition (Ollama)
+# IA Shell Assistant — Portable Edition (Ollama & OpenRouter)
 
-Version **100% locale** de l'assistant `ia`, basée sur **Ollama** et **Qwen2.5**.
+Assistant `ia` en ligne de commande pour générer des commandes Bash fiables en langage naturel. Supporte **Ollama** (100% local) et **OpenRouter** (Cloud performant avec modèles fallback).
 
-Objectif : générer des commandes Bash fiables en langage naturel, sans dépendance cloud, pour environnements sensibles ou isolés.
+Objectif : générer des commandes Bash fiables, sans dépendance lourde, pour tous les environnements (sensibles ou connectés).
 
 ---
 
 ## Ce que fait ce projet
 
-- **Modèle local uniquement** : Ollama sur `http://localhost:11434` — aucune donnée n'est envoyée en dehors de la machine.
-- **Choix de modèle à l'installation** : Qwen2.5 0.5B (rapide) ou 1.5B (puissant), sélection interactive.
-- **Modèle custom** : `ia-sysadmin` construit depuis le `Modelfile`, recréé automatiquement si le modèle de base change.
+- **Multifournisseur** : 
+  - **Local (Ollama)** : aucune donnée n'est envoyée en dehors de la machine. Choix de modèle (Qwen2.5 0.5B ou 1.5B).
+  - **Cloud (OpenRouter)** : réponses ultra-rapides, fallback sur une liste de 17 modèles (Mistral, Llama 3.3, Qwen, Gemma 3, etc.) pour garantir la disponibilité gratuite ou payante.
 - **Entrée flexible** : prompt direct OU pipe stdin (limite 2000 caractères).
 - **Mode interactif** (`-x`) : affichage + confirmation avant exécution.
 - **Sécurité** :
@@ -39,18 +39,19 @@ sudo bash install.sh
 
 L'installeur :
 
-1. Demande de choisir un modèle (0.5B rapide ou 1.5B puissant)
-2. Installe `curl` + `jq` (apt/dnf/yum)
-3. Télécharge et installe Ollama (demande confirmation)
-4. Démarre le service Ollama
-5. Télécharge le modèle choisi
-6. Construit le modèle custom `ia-sysadmin`
-7. Installe `ia` dans `/usr/local/bin`
-8. Configure l'alias global dans `/etc/bash.bashrc`
+1. Demande de choisir le fournisseur : **Ollama (Local)** ou **OpenRouter (Cloud)**.
+2. Installe `curl` + `jq` (apt/dnf/yum).
+3. Si **Ollama** est choisi :
+   - Télécharge et installe Ollama.
+   - Démarre le service Ollama.
+   - Télécharge le modèle et construit le modèle custom `ia-sysadmin`.
+4. Installe `ia` dans `/usr/local/bin`.
+5. Configure l'alias global et le fichier `~/.ia_config`.
 
 **Durée estimée :**
-- Qwen 0.5B : 3-5 minutes (340 MB)
-- Qwen 1.5B : 8-12 minutes (986 MB)
+- OpenRouter : < 30 secondes.
+- Qwen 0.5B (Local) : 3-5 minutes (340 MB).
+- Qwen 1.5B (Local) : 8-12 minutes (986 MB).
 
 ### Choisir entre Qwen 0.5B et 1.5B
 
@@ -96,9 +97,21 @@ journalctl -u nginx -n 50 | ia "résume les erreurs"
 
 ---
 
-## Configuration
+## Configuration et Changement de Fournisseur
 
-### Variables runtime
+À tout moment, vous pouvez changer de fournisseur (passer du Cloud au Local, ou inversement) en utilisant :
+
+```bash
+ia --config
+```
+
+Cette commande vous demandera :
+1. Le fournisseur (Ollama ou OpenRouter).
+2. Si vous choisissez OpenRouter, votre clé API.
+
+Les paramètres sont sauvegardés de manière sécurisée dans `~/.ia_config`.
+
+### Variables runtime (Ollama)
 
 ```bash
 # URL API Ollama (défaut: http://localhost:11434/api/generate)
