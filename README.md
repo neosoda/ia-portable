@@ -1,17 +1,63 @@
-# IA Portable
+<p align="center">
+  <img src="docs/assets/ia-portable-hero.svg" alt="IA Portable transforme une demande en langage naturel en commande Bash" width="100%">
+</p>
 
-> Natural language in. Bash command out.
+<h1 align="center">IA Portable</h1>
 
-`ia` est un assistant terminal minimaliste : vous décrivez ce que vous voulez faire, il renvoie une commande Bash exploitable.
+<p align="center">
+  <strong>Écris ce que tu veux faire. Reçois la commande Bash.</strong><br>
+  Un assistant terminal simple, sobre, local-first, pensé pour produire une commande exploitable.
+</p>
 
-Par défaut, il ne discute pas, n'explique pas, ne met pas de markdown. Il imprime une seule ligne.
+<p align="center">
+  <a href="#installation"><img alt="Install" src="https://img.shields.io/badge/install-sudo%20bash%20install.sh-1B2A3A?style=for-the-badge"></a>
+  <a href="#providers"><img alt="Ollama" src="https://img.shields.io/badge/provider-Ollama-3FE7C1?style=for-the-badge&labelColor=0B1320"></a>
+  <a href="#providers"><img alt="OpenRouter" src="https://img.shields.io/badge/provider-OpenRouter-A7F04B?style=for-the-badge&labelColor=0B1320"></a>
+  <a href="LICENSE"><img alt="License MIT" src="https://img.shields.io/badge/license-MIT-E7F7EE?style=for-the-badge&labelColor=0B1320"></a>
+</p>
+
+<p align="center">
+  <a href="#demo">Démo</a>
+  ·
+  <a href="#installation">Installation</a>
+  ·
+  <a href="#commandes">Commandes</a>
+  ·
+  <a href="#providers">Providers</a>
+  ·
+  <a href="#sécurité">Sécurité</a>
+  ·
+  <a href="#dépannage">Dépannage</a>
+</p>
+
+---
+
+## Démo
+
+`ia` ne bavarde pas par défaut. Il renvoie une seule ligne, directement utilisable.
 
 ```bash
 $ ia "trouve les fichiers log de plus de 30 jours"
 find . -type f -name "*.log" -mtime +30
 ```
 
-Avec confirmation :
+Quand tu veux comprendre avant d'agir :
+
+```bash
+$ ia -e 'find . -type f -mtime +30 -delete'
+
+Commande proposee :
+
+find . -type f -mtime +30 -delete
+
+Explication :
+supprime les fichiers correspondant aux criteres de plus de 30 jours dans le dossier courant.
+
+Risque :
+Moyen - modification de fichiers, services, paquets ou privileges.
+```
+
+Quand tu veux exécuter avec confirmation :
 
 ```bash
 $ ia -x "supprime les logs de plus de 30 jours dans /var/log"
@@ -31,20 +77,6 @@ Executer ? [y/N]
 
 ---
 
-## Pourquoi
-
-Le terminal est puissant, mais il faut souvent se souvenir de la bonne option, du bon ordre, du bon pipe.
-
-`ia` sert à ça :
-
-- trouver vite la bonne commande ;
-- garder une sortie directement utilisable dans le terminal ;
-- expliquer seulement quand on le demande ;
-- confirmer avant d'executer ;
-- fonctionner en local avec Ollama ou via OpenRouter.
-
----
-
 ## Installation
 
 ```bash
@@ -53,36 +85,50 @@ cd ia-portable
 sudo bash install.sh
 ```
 
-Prérequis :
+<table>
+  <tr>
+    <td><strong>Prérequis</strong></td>
+    <td>Bash 4+, <code>curl</code>, <code>jq</code>, <code>sudo</code> ou root</td>
+  </tr>
+  <tr>
+    <td><strong>Installation</strong></td>
+    <td>Place la commande <code>ia</code> dans <code>/usr/local/bin</code></td>
+  </tr>
+  <tr>
+    <td><strong>Config</strong></td>
+    <td>Stockée dans <code>~/.ia_config</code></td>
+  </tr>
+</table>
 
-- Bash 4+
-- `curl`
-- `jq`
-- `sudo` ou root pour installer globalement la commande `ia`
+<details>
+<summary><strong>Ce que fait l'installeur</strong></summary>
 
-L'installeur configure le provider, installe les dependances, puis place `ia` dans `/usr/local/bin`.
+1. Demande le provider par défaut.
+2. Installe `curl` et `jq`.
+3. Installe Ollama si le mode local est choisi.
+4. Construit le modèle local `ia-sysadmin` depuis `Modelfile`.
+5. Installe la commande `ia`.
+
+</details>
 
 ---
 
-## Utilisation rapide
+## Commandes
 
-| Commande | Effet |
-| --- | --- |
-| `ia "ma demande"` | Renvoie uniquement la commande |
-| `ia -e "ma demande"` | Renvoie commande, explication et risque |
-| `ia -x "ma demande"` | Propose, confirme, puis execute |
-| `ia -s "ma demande"` | Active le mode strict |
-| `ia --provider ollama "ma demande"` | Force Ollama pour cet appel |
-| `ia --provider openrouter "ma demande"` | Force OpenRouter pour cet appel |
-| `cat fichier.log \| ia "trouve l'erreur"` | Utilise stdin comme contexte |
+| Besoin | Commande | Sortie |
+| --- | --- | --- |
+| Obtenir une commande | `ia "ma demande"` | Commande seule |
+| Comprendre avant d'agir | `ia -e "ma demande"` | Commande + explication + risque |
+| Confirmer puis exécuter | `ia -x "ma demande"` | Prompt `Executer ? [y/N]` |
+| Durcir la sécurité | `ia -s "ma demande"` | Refus plus strict |
+| Forcer Ollama | `ia --provider ollama "ma demande"` | Provider local |
+| Forcer OpenRouter | `ia --provider openrouter "ma demande"` | Provider cloud |
+| Utiliser stdin | <code>cat fichier.log &#124; ia "trouve l'erreur"</code> | Commande compatible contexte |
 
----
+<details open>
+<summary><strong>Mode commande seule</strong></summary>
 
-## Modes
-
-### Commande seule
-
-Le mode par défaut est fait pour être scriptable et copiable.
+Fait pour rester scriptable, propre et rapide.
 
 ```bash
 $ ia "combien de RAM libre ?"
@@ -94,51 +140,54 @@ $ ia "les 20 plus gros fichiers ici"
 find . -type f -printf '%s %p\n' | sort -nr | head -20
 ```
 
-### Explication
+</details>
 
-Utilisez `-e` quand vous voulez comprendre avant d'agir.
+<details>
+<summary><strong>Mode explication</strong></summary>
+
+`-e` affiche la commande, une explication courte et un niveau de risque.
 
 ```bash
 $ ia -e "liste les connexions SSH actives"
 ```
 
-`-e` peut aussi expliquer une commande existante :
+Il peut aussi expliquer une commande existante :
 
 ```bash
 $ ia -e 'find . -type f -mtime +30 -delete'
 ```
 
-### Exécution
+</details>
 
-Utilisez `-x` quand vous voulez laisser `ia` lancer la commande après validation humaine.
+<details>
+<summary><strong>Mode exécution</strong></summary>
+
+`-x` garde un humain dans la boucle.
 
 ```bash
 $ ia -x "redemarre nginx"
 ```
 
-`ia` affiche la commande, son explication, son niveau de risque, puis demande :
+Les exécutions sont journalisées dans `~/.ia_history`.
 
-```text
-Executer ? [y/N]
-```
+</details>
 
-Les executions sont journalisées dans `~/.ia_history`.
+<details>
+<summary><strong>Mode strict</strong></summary>
 
-### Mode strict
-
-Utilisez `-s` quand vous voulez un comportement plus prudent.
+`-s` refuse par défaut les commandes qui touchent aux suppressions, permissions, propriétaires, privilèges, redirections d'écriture ou opérations système critiques.
 
 ```bash
 $ ia -s "nettoie les vieux logs"
 ```
 
-Le mode strict refuse par défaut les commandes qui touchent aux suppressions, permissions, propriétaires, privileges, redirections d'écriture ou opérations système critiques.
+</details>
 
 ---
 
 ## Pipe stdin
 
-`ia` peut utiliser l'entrée standard comme contexte.
+Donne du contexte à `ia` sans perdre la sortie exploitable.
 
 ```bash
 $ tail -100 /var/log/syslog | ia "trouve les erreurs"
@@ -150,66 +199,83 @@ $ cat access.log | ia "compte les IP les plus frequentes"
 awk '{print $1}' | sort | uniq -c | sort -nr | head
 ```
 
-La sortie reste une commande exploitable.
-
 ---
 
 ## Providers
 
-### Ollama local
+<table>
+  <tr>
+    <th>Provider</th>
+    <th>Quand l'utiliser</th>
+    <th>Commande</th>
+  </tr>
+  <tr>
+    <td><strong>Ollama</strong></td>
+    <td>Local-first, données sur la machine</td>
+    <td><code>ia --provider ollama "diagnostique nginx"</code></td>
+  </tr>
+  <tr>
+    <td><strong>OpenRouter</strong></td>
+    <td>Réponses cloud plus robustes, fallback modèles</td>
+    <td><code>ia --provider openrouter "trouve pourquoi systemd relance ce service"</code></td>
+  </tr>
+</table>
 
-Ollama est le choix par défaut pour garder les donnees sur la machine.
+Liens utiles :
 
-```bash
-ia --provider ollama "diagnostique nginx"
-```
+- [Ollama](https://ollama.com)
+- [OpenRouter](https://openrouter.ai)
+- [Bash Reference Manual](https://www.gnu.org/software/bash/manual/bash.html)
 
-Variables utiles :
+Configuration runtime :
 
 ```bash
 export IA_LOCAL_API_URL="http://localhost:11434/api/generate"
 export IA_LOCAL_MODEL="ia-sysadmin"
-```
-
-### OpenRouter cloud
-
-OpenRouter est utile si vous voulez des réponses plus robustes ou un fallback entre modèles.
-
-```bash
 export OPENROUTER_API_KEY="..."
-ia --provider openrouter "trouve pourquoi systemd relance ce service"
 ```
 
-Pour choisir le provider par défaut :
+Choisir le provider par défaut :
 
 ```bash
 ia --config
 ```
 
-La configuration est stockée dans `~/.ia_config`.
-
 ---
 
 ## Sécurité
 
-`ia` n'est pas un agent autonome. Il propose une commande, et n'execute qu'avec `-x` après confirmation.
+`ia` n'est pas un agent autonome. Il propose une commande, et n'exécute qu'avec `-x` après confirmation.
+
+```mermaid
+flowchart LR
+  A["Demande utilisateur"] --> B["Génération commande"]
+  B --> C["Nettoyage sortie"]
+  C --> D["Validation bash -n"]
+  D --> E["Classification risque"]
+  E --> F{"Mode -x ?"}
+  F -->|Non| G["Affiche commande"]
+  F -->|Oui| H["Demande confirmation"]
+  H --> I["Execute ou annule"]
+```
 
 Garde-fous inclus :
 
 - sortie commande seule par défaut ;
 - validation syntaxique via `bash -n` ;
 - classification de risque : `Faible`, `Moyen`, `Eleve`, `Bloque` ;
-- refus d'execution des commandes critiques ;
+- refus d'exécution des commandes critiques ;
 - mode strict pour refuser les actions destructrices ;
-- historique local des executions dans `~/.ia_history`.
+- historique local dans `~/.ia_history`.
 
-Le modèle peut se tromper. Relisez toujours avant d'executer.
+> Le modèle peut se tromper. Relis toujours avant d'exécuter.
 
 ---
 
 ## Exemples
 
-### Diagnostic système
+<details open>
+<summary><strong>Diagnostic système</strong></summary>
 
 ```bash
 $ ia "espace disque lisible"
@@ -221,7 +287,10 @@ $ ia "processus qui consomment le plus de CPU"
 ps aux --sort=-%cpu | head
 ```
 
-### Fichiers
+</details>
+
+<details>
+<summary><strong>Fichiers</strong></summary>
 
 ```bash
 $ ia "trouve les fichiers modifies aujourd'hui"
@@ -232,44 +301,50 @@ find . -type f -mtime -1
 $ ia -e "archive ce dossier en tar.gz"
 ```
 
-### Logs
+</details>
+
+<details>
+<summary><strong>Logs</strong></summary>
 
 ```bash
 $ journalctl -u nginx -n 200 | ia "filtre les erreurs"
 grep -i error
 ```
 
-### Prudent par défaut
-
-```bash
-$ ia -s "supprime les fichiers temporaires"
-```
-
-En mode strict, `ia` doit privilegier une commande de vérification ou refuser la commande si elle reste destructive.
+</details>
 
 ---
 
 ## Dépannage
 
-### Ollama ne répond pas
+<details>
+<summary><strong>Ollama ne répond pas</strong></summary>
 
 ```bash
 curl -s http://localhost:11434
 systemctl restart ollama
 ```
 
-### Le modèle local manque
+</details>
+
+<details>
+<summary><strong>Le modèle local manque</strong></summary>
 
 ```bash
 ollama list
 ollama create ia-sysadmin -f Modelfile
 ```
 
-### Changer de provider
+</details>
+
+<details>
+<summary><strong>Changer de provider</strong></summary>
 
 ```bash
 ia --config
 ```
+
+</details>
 
 ---
 
@@ -277,9 +352,10 @@ ia --config
 
 ```text
 .
-├── ia.sh          # client CLI principal
-├── install.sh     # installeur
-├── Modelfile      # prompt du modele local Ollama
+├── docs/assets/ia-portable-hero.svg
+├── ia.sh
+├── install.sh
+├── Modelfile
 ├── README.md
 ├── LICENSE
 └── .gitignore
@@ -287,6 +363,6 @@ ia --config
 
 ---
 
-## Licence
-
-MIT
+<p align="center">
+  <strong>IA Portable</strong> · MIT · conçu pour rester simple dans le terminal
+</p>
