@@ -1,70 +1,442 @@
 #!/usr/bin/env bash
-# --- IA Shell Assistant (Local Edition via Ollama) ---
+# IA Shell Assistant - command-first CLI for Bash
 
 set -euo pipefail
 
 API_URL="${IA_LOCAL_API_URL:-http://localhost:11434/api/generate}"
-MODEL="${IA_LOCAL_MODEL:-ia-sysadmin}" # Notre modèle custom défini dans le Modelfile
-
+MODEL="${IA_LOCAL_MODEL:-ia-sysadmin}"
 CONFIG_FILE="${HOME}/.ia_config"
+PIPE_LIMIT="${IA_PIPE_LIMIT:-12000}"
 
 if [[ -f "$CONFIG_FILE" ]]; then
+  # shellcheck disable=SC1090
   source "$CONFIG_FILE"
 fi
 
-PROVIDER="${PROVIDER:-ollama}"
-
+PROVIDER="${PROVIDER:-${IA_PROVIDER:-ollama}}"
+MODE="command"
+STRICT_MODE=false
+PROMPT=""
+PIPE_CONTENT=""
 RESPONSE_FILE=""
+CMD_CLEAN=""
+RISK_LEVEL="Faible"
+RISK_REASON="lecture ou diagnostic sans modification evidente"
 
 cleanup() {
   if [[ -n "${RESPONSE_FILE:-}" && -f "$RESPONSE_FILE" ]]; then
     rm -f "$RESPONSE_FILE"
   fi
 }
+trap cleanup EXIT
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  ia "ma demande"                         # commande uniquement
+  ia -e "ma demande"                      # commande + explication + risque
+  ia -x "ma demande"                      # propose, confirme, execute
+  ia -s "ma demande"                      # mode strict/securite renforcee
+  ia --provider ollama "ma demande"
+  ia --provider openrouter "ma demande"
+  cat fichier.log | ia "trouve l'erreur"
+EOF
+}
 
 require_binary() {
   local bin="$1"
   if ! command -v "$bin" >/dev/null 2>&1; then
-    echo "❌ Dépendance manquante : $bin" >&2
+    echo "Erreur: dependance manquante: $bin" >&2
     exit 1
   fi
 }
 
-trap cleanup EXIT
+configure_provider() {
+  echo "=== Configuration du fournisseur IA ==="
+  echo "1) Local (Ollama)"
+  echo "2) Cloud (OpenRouter)"
+  read -rp "Choix [1/2] : " provider_choice
 
-require_binary curl
-require_binary jq
-
-# ================= Fonctions de sécurité & audit =================
-
-is_dangerous_command() {
-  local cmd="$1"
-  if echo "$cmd" | grep -qE \
-    'rm[[:space:]]+-[a-zA-Z]*r[a-zA-Z]*f|rm[[:space:]]+-[a-zA-Z]*f[a-zA-Z]*r|\bdd\b[^|]*\bof=|\bmkfs\b|\bfdisk\b|\bparted\b|\bwipefs\b|\bshred\b|(curl|wget)[^|]*\|[[:space:]]*(bash|sh)\b|:\(\)\{|> /dev/[sh]|chmod[[:space:]]+-?R\b|chmod[[:space:]]+[0-7]*7[0-7][0-7]|\breboot\b|\bpoweroff\b|\bshutdown\b|\biptables[[:space:]]+-F\b|\bufw[[:space:]]+disable\b|\buserdel\b|\bkill[[:space:]]+-9[[:space:]]+1\b'; then
-    return 0
+  if [[ "$provider_choice" == "2" ]]; then
+    read -rp "Cle API OpenRouter : " api_key
+    if [[ -z "$api_key" ]]; then
+      echo "Erreur: cle API requise." >&2
+      exit 1
+    fi
+    {
+      echo 'PROVIDER="openrouter"'
+      printf 'OPENROUTER_API_KEY=%q\n' "$api_key"
+    } > "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"
+    echo "Fournisseur configure: OpenRouter."
+  else
+    echo 'PROVIDER="ollama"' > "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"
+    echo "Fournisseur configure: Ollama."
   fi
-  return 1
+  exit 0
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -e|--explain)
+        MODE="explain"
+        shift
+        ;;
+      -x|--execute|--run)
+        MODE="execute"
+        shift
+        ;;
+      -s|--strict)
+        STRICT_MODE=true
+        shift
+        ;;
+      --provider)
+        if [[ $# -lt 2 ]]; then
+          echo "Erreur: --provider attend 'ollama' ou 'openrouter'." >&2
+          exit 1
+        fi
+        PROVIDER="$2"
+        shift 2
+        ;;
+      --provider=*)
+        PROVIDER="${1#*=}"
+        shift
+        ;;
+      -c|--config)
+        configure_provider
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      --)
+        shift
+        PROMPT="$*"
+        break
+        ;;
+      -*)
+        echo "Erreur: option inconnue: $1" >&2
+        usage
+        exit 1
+        ;;
+      *)
+        PROMPT="$*"
+        break
+        ;;
+    esac
+  done
+
+  case "$PROVIDER" in
+    ollama|openrouter) ;;
+    *)
+      echo "Erreur: provider invalide: $PROVIDER (attendu: ollama ou openrouter)." >&2
+      exit 1
+      ;;
+  esac
+}
+
+read_stdin_context() {
+  if [[ ! -t 0 ]]; then
+    PIPE_CONTENT=$(head -c "$PIPE_LIMIT" || true)
+  fi
+}
+
+build_prompt() {
+  local os_info="Inconnu"
+  [[ -f /etc/os-release ]] && os_info=$(grep -E '^(PRETTY_NAME|NAME)=' /etc/os-release | head -1 | cut -d= -f2 | tr -d '"')
+  local user_id
+  user_id=$(id -u)
+
+  local safety_hint="Mode normal: propose la commande Bash la plus simple et directement executable."
+  if [[ "$STRICT_MODE" == "true" ]]; then
+    safety_hint="Mode strict: privilegie les commandes de lecture/diagnostic, evite sudo, suppression, ecriture systeme et modifications irreversibles."
+  fi
+
+  local full_prompt
+  full_prompt="[CONTEXT: OS=$os_info, UID=$user_id (0=root)] $safety_hint Request: $PROMPT"
+
+  if [[ -n "$PIPE_CONTENT" ]]; then
+    full_prompt="${full_prompt}"$'\n\n'"--- STDIN SAMPLE ---"$'\n'"${PIPE_CONTENT}"$'\n\n'"If useful, produce a command that can read from stdin."
+  fi
+
+  printf '%s' "$full_prompt"
+}
+
+system_prompt() {
+  cat <<'EOF'
+Tu es ia, un generateur de commandes Bash pour terminal.
+
+CONTRAT STRICT:
+- Reponds par UNE SEULE commande Bash executable, sur UNE SEULE ligne.
+- Aucun markdown, aucune explication, aucun commentaire.
+- Ne discute jamais avec l'utilisateur.
+- Si la demande est ambigue, donne une commande de diagnostic sure.
+- Si une entree stdin est fournie, prefere une commande compatible stdin quand c'est pertinent.
+- Pour une action destructive incertaine, donne d'abord une commande de verification.
+EOF
+}
+
+query_openrouter() {
+  require_binary curl
+  require_binary jq
+
+  if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
+    echo "Erreur: cle API OpenRouter non configuree. Lancez 'ia --config' ou exportez OPENROUTER_API_KEY." >&2
+    exit 1
+  fi
+
+  local user_prompt="$1"
+  local models_json payload
+  local openrouter_models=(
+    "mistralai/mistral-small-3.1-24b-instruct:free"
+    "meta-llama/llama-3.3-70b-instruct:free"
+    "qwen/qwen3-next-80b-a3b-instruct:free"
+    "google/gemma-3-12b-it:free"
+    "openai/gpt-oss-20b:free"
+    "qwen/qwen3-4b:free"
+    "meta-llama/llama-3.2-3b-instruct:free"
+  )
+
+  models_json=$(printf '%s\n' "${openrouter_models[@]}" | jq -R . | jq -s .)
+  payload=$(jq -n \
+    --argjson models "$models_json" \
+    --arg system_prompt "$(system_prompt)" \
+    --arg user_prompt "$user_prompt" \
+    '{
+      models: $models,
+      messages: [
+        {role: "system", content: $system_prompt},
+        {role: "user", content: $user_prompt}
+      ],
+      temperature: 0.1
+    }')
+
+  RESPONSE_FILE=$(mktemp -t ia-openrouter-response.XXXXXX.json)
+  if ! curl --silent --show-error --fail-with-body --max-time 30 \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+    -H "HTTP-Referer: https://github.com/neosoda/ia-portable" \
+    -H "X-Title: IA Portable" \
+    -d "$payload" \
+    "https://openrouter.ai/api/v1/chat/completions" > "$RESPONSE_FILE"; then
+    echo "Erreur: appel API OpenRouter echoue." >&2
+    cat "$RESPONSE_FILE" >&2
+    exit 1
+  fi
+
+  local api_error
+  api_error=$(jq -r '.error.message // empty' "$RESPONSE_FILE")
+  if [[ -n "$api_error" ]]; then
+    echo "Erreur OpenRouter: $api_error" >&2
+    exit 1
+  fi
+
+  jq -r '.choices[0].message.content // empty' "$RESPONSE_FILE"
+}
+
+query_ollama() {
+  require_binary curl
+  require_binary jq
+  require_binary ollama
+
+  local user_prompt="$1"
+  local payload
+  payload=$(jq -n \
+    --arg model "$MODEL" \
+    --arg prompt "$user_prompt" \
+    '{
+      model: $model,
+      prompt: $prompt,
+      stream: false,
+      options: { temperature: 0.1 }
+    }')
+
+  if ! curl --silent --show-error --fail --max-time 5 -o /dev/null "${API_URL%/api/generate}"; then
+    echo "Erreur: Ollama n'est pas accessible sur ${API_URL%/api/generate}." >&2
+    exit 1
+  fi
+
+  if ! ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -Fq "$MODEL"; then
+    echo "Erreur: modele '$MODEL' introuvable dans Ollama." >&2
+    echo "Lancez: ollama pull $MODEL" >&2
+    exit 1
+  fi
+
+  RESPONSE_FILE=$(mktemp -t ia-ollama-response.XXXXXX.json)
+  if ! curl --silent --show-error --fail-with-body --max-time 30 \
+    -H "Content-Type: application/json" \
+    -d "$payload" \
+    "$API_URL" > "$RESPONSE_FILE"; then
+    echo "Erreur: appel API Ollama echoue." >&2
+    exit 1
+  fi
+
+  local api_error
+  api_error=$(jq -r '.error // empty' "$RESPONSE_FILE")
+  if [[ -n "$api_error" ]]; then
+    echo "Erreur Ollama: $api_error" >&2
+    exit 1
+  fi
+
+  jq -r '.response // empty' "$RESPONSE_FILE"
+}
+
+query_model() {
+  local full_prompt="$1"
+
+  if [[ -n "${IA_TEST_RESPONSE:-}" ]]; then
+    printf '%s\n' "$IA_TEST_RESPONSE"
+    return
+  fi
+
+  case "$PROVIDER" in
+    openrouter) query_openrouter "$full_prompt" ;;
+    ollama) query_ollama "$full_prompt" ;;
+  esac
+}
+
+clean_command() {
+  local raw="$1"
+  printf '%s\n' "$raw" \
+    | sed 's/```bash//g;s/```//g;s/^[[:space:]]*\$[[:space:]]*//' \
+    | grep -v '^[[:space:]]*$' \
+    | head -1 \
+    | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
 validate_command_syntax() {
   local cmd="$1"
   if ! bash -n <<< "$cmd" 2>/dev/null; then
-    echo "❌ Syntaxe invalide détectée dans la commande générée. Abandon." >&2
+    echo "Erreur: syntaxe Bash invalide dans la commande generee." >&2
     return 1
   fi
-  return 0
 }
 
-extract_single_line() {
-  local raw="$1"
-  local line_count
-  line_count=$(echo "$raw" | wc -l)
-  if [[ $line_count -gt 1 ]]; then
-    echo "⚠️  Réponse multi-lignes ($line_count lignes). Seule la première est conservée." >&2
-    echo "$raw" | head -1
-  else
-    echo "$raw"
+looks_like_existing_command() {
+  local candidate="$1"
+  local first
+  read -r first _ <<< "$candidate"
+  [[ -n "$first" ]] || return 1
+  [[ "$candidate" == *" "* ]] || return 1
+  command -v "$first" >/dev/null 2>&1 || return 1
+  bash -n <<< "$candidate" 2>/dev/null
+}
+
+classify_risk() {
+  local cmd="$1"
+  RISK_LEVEL="Faible"
+  RISK_REASON="lecture ou diagnostic sans modification evidente"
+
+  if grep -Eq ':\(\)\{|(\bmkfs\b|\bwipefs\b|\bfdisk\b|\bparted\b)|\bdd\b[^|]*\bof=/dev/|\bkill[[:space:]]+-9[[:space:]]+1\b|\bshutdown\b|\bpoweroff\b|\breboot\b|\buserdel\b|\biptables[[:space:]]+-F\b|\bufw[[:space:]]+disable\b' <<< "$cmd"; then
+    RISK_LEVEL="Bloque"
+    RISK_REASON="operation systeme critique ou potentiellement irreversible"
+    return
   fi
+
+  if grep -Eq '\brm[[:space:]]+-[A-Za-z]*r[A-Za-z]*f|\brm[[:space:]]+-[A-Za-z]*f[A-Za-z]*r|(curl|wget)[^|]*\|[[:space:]]*(bash|sh)\b|\bchmod[[:space:]]+-?R[[:space:]][0-7]*7[0-7][0-7]\b|\bchown[[:space:]]+-?R\b|>[[:space:]]*/dev/[sh]d[a-z]' <<< "$cmd"; then
+    RISK_LEVEL="Eleve"
+    RISK_REASON="suppression recursive, privilege large ou execution distante"
+    return
+  fi
+
+  if grep -Eq '\bfind\b.*[[:space:]]-delete([[:space:]]|$)|\brm\b|\bmv\b|\bchmod\b|\bchown\b|\bkill\b|\bsystemctl[[:space:]]+(restart|stop|disable)\b|\b(service)[[:space:]].*(restart|stop)\b|\b(apt|apt-get|dnf|yum|pacman)[[:space:]].*(install|remove|purge|upgrade)\b|\bdocker[[:space:]]+(rm|rmi|compose[[:space:]]+down)\b|\bkubectl[[:space:]]+delete\b|\bsudo\b|(^|[^0-9])>[[:space:]]*[^&]' <<< "$cmd"; then
+    RISK_LEVEL="Moyen"
+    RISK_REASON="modification de fichiers, services, paquets ou privileges"
+  fi
+}
+
+strict_refuses_command() {
+  local cmd="$1"
+  [[ "$RISK_LEVEL" == "Bloque" || "$RISK_LEVEL" == "Eleve" ]] && return 0
+  grep -Eq '\bfind\b.*[[:space:]]-delete([[:space:]]|$)|\brm\b|\bsudo\b|\bchmod\b|\bchown\b|(^|[^0-9])>[[:space:]]*[^&]' <<< "$cmd"
+}
+
+explain_command() {
+  local cmd="$1"
+  local path name days
+
+  if [[ "$cmd" =~ ^find[[:space:]]+([^[:space:]]+) ]]; then
+    path="${BASH_REMATCH[1]}"
+    local path_label="$path"
+    [[ "$path" == "." ]] && path_label="le dossier courant"
+    local action="liste"
+    [[ "$cmd" == *" -delete"* ]] && action="supprime"
+    [[ "$cmd" == *" -exec "* ]] && action="applique une action a"
+    local detail="les fichiers correspondant aux criteres"
+    if [[ "$cmd" =~ -name[[:space:]]+\"?([^\"[:space:]]+)\"? ]]; then
+      name="${BASH_REMATCH[1]}"
+      detail="les elements nommes $name"
+    fi
+    if [[ "$cmd" =~ -mtime[[:space:]]+\+([0-9]+) ]]; then
+      days="${BASH_REMATCH[1]}"
+      detail="$detail de plus de $days jours"
+    fi
+    printf '%s %s dans %s.\n' "$action" "$detail" "$path_label"
+    return
+  fi
+
+  case "$cmd" in
+    df\ *|df)
+      echo "Affiche l'utilisation des systemes de fichiers."
+      ;;
+    du\ *)
+      echo "Calcule l'espace disque utilise par les chemins indiques."
+      ;;
+    free\ *|free)
+      echo "Affiche l'utilisation de la memoire RAM et du swap."
+      ;;
+    ps\ *|ps)
+      echo "Affiche les processus selon les options demandees."
+      ;;
+    systemctl\ status*)
+      echo "Affiche l'etat du service indique."
+      ;;
+    journalctl\ *)
+      echo "Lit les journaux systemd selon les filtres indiques."
+      ;;
+    grep\ *|rg\ *)
+      echo "Recherche du texte selon le motif indique."
+      ;;
+    tail\ *)
+      echo "Affiche la fin d'un fichier ou d'un flux."
+      ;;
+    mkdir\ *)
+      echo "Cree le ou les dossiers indiques."
+      ;;
+    rm\ *)
+      echo "Supprime les fichiers ou dossiers indiques."
+      ;;
+    cp\ *)
+      echo "Copie des fichiers ou dossiers."
+      ;;
+    mv\ *)
+      echo "Deplace ou renomme des fichiers ou dossiers."
+      ;;
+    chmod\ *)
+      echo "Modifie les permissions des fichiers ou dossiers indiques."
+      ;;
+    chown\ *)
+      echo "Modifie le proprietaire des fichiers ou dossiers indiques."
+      ;;
+    curl\ *|wget\ *)
+      echo "Effectue une requete reseau ou telecharge une ressource."
+      ;;
+    *)
+      echo "Execute la commande Bash proposee pour repondre a la demande."
+      ;;
+  esac
+}
+
+print_explained_command() {
+  local cmd="$1"
+  local explanation
+  explanation=$(explain_command "$cmd")
+
+  printf 'Commande proposee :\n\n%s\n\n' "$cmd"
+  printf 'Explication :\n%s\n\n' "$explanation"
+  printf 'Risque :\n%s - %s.\n' "$RISK_LEVEL" "$RISK_REASON"
 }
 
 log_execution() {
@@ -74,275 +446,82 @@ log_execution() {
   timestamp=$(date '+%Y-%m-%d %H:%M:%S')
   printf '[%s] [%s] PROMPT=%q | CMD=%q | STATUS=%s\n' \
     "$timestamp" "$PROVIDER" "$PROMPT" "$CMD_CLEAN" "$status" >> "$log_file"
+  chmod 600 "$log_file" 2>/dev/null || true
 }
 
-configure_provider() {
-  echo -e "\033[1;34m=== Configuration du fournisseur IA ===\033[0m"
-  echo "1) Local (Ollama) - Par défaut, 100% privé"
-  echo "2) Cloud (OpenRouter) - Rapide, modèles plus puissants, nécessite une clé API"
-  read -rp "Choix [1/2] : " provider_choice
-  
-  if [[ "$provider_choice" == "2" ]]; then
-    read -rp "Clé API OpenRouter : " api_key
-    if [[ -z "$api_key" ]]; then
-      echo "❌ Erreur : clé API requise."
-      exit 1
-    fi
-    echo "PROVIDER=\"openrouter\"" > "$CONFIG_FILE"
-    echo "OPENROUTER_API_KEY=\"$api_key\"" >> "$CONFIG_FILE"
-    chmod 600 "$CONFIG_FILE"
-    echo "✅ Fournisseur configuré sur OpenRouter."
-  else
-    echo "PROVIDER=\"ollama\"" > "$CONFIG_FILE"
-    chmod 600 "$CONFIG_FILE"
-    echo "✅ Fournisseur configuré sur Ollama (Local)."
+execute_with_confirmation() {
+  print_explained_command "$CMD_CLEAN"
+  printf '\n'
+
+  if [[ "$RISK_LEVEL" == "Bloque" ]]; then
+    echo "Execution refusee: risque bloque." >&2
+    log_execution "blocked"
+    exit 2
   fi
-  exit 0
+
+  if [[ -n "${IA_CONFIRM:-}" ]]; then
+    confirm="$IA_CONFIRM"
+  elif [[ -r /dev/tty ]]; then
+    read -rp "Executer ? [y/N] " confirm </dev/tty
+  else
+    read -rp "Executer ? [y/N] " confirm
+  fi
+  if [[ "$confirm" =~ ^([yY]|[oO]([uU][iI])?)$ ]]; then
+    bash -c "$CMD_CLEAN"
+    log_execution "executed"
+  else
+    echo "Annule."
+    log_execution "cancelled"
+  fi
 }
 
-# ================= Gestion des Arguments =================
-RUN_MODE=false
-PROMPT=""
-PIPE_CONTENT=""
+main() {
+  parse_args "$@"
+  read_stdin_context
 
-# Détection de l'entrée standard (Pipe)
-if [[ ! -t 0 ]]; then
-  PIPE_CONTENT=$(timeout 1 cat | head -c 2000)
-fi
+  if [[ -z "$PROMPT" && -z "$PIPE_CONTENT" ]]; then
+    usage
+    exit 1
+  fi
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -x|--run)
-      RUN_MODE=true
-      shift
+  if [[ "$MODE" == "explain" && -n "$PROMPT" && -z "$PIPE_CONTENT" ]] && looks_like_existing_command "$PROMPT"; then
+    CMD_CLEAN="$PROMPT"
+  else
+    local full_prompt response
+    full_prompt=$(build_prompt)
+    response=$(query_model "$full_prompt")
+    CMD_CLEAN=$(clean_command "$response")
+  fi
+
+  if [[ -z "$CMD_CLEAN" || "$CMD_CLEAN" == "null" ]]; then
+    echo "Erreur: l'IA n'a pas renvoye de commande exploitable." >&2
+    exit 1
+  fi
+
+  validate_command_syntax "$CMD_CLEAN"
+  classify_risk "$CMD_CLEAN"
+
+  if [[ "$STRICT_MODE" == "true" ]] && strict_refuses_command "$CMD_CLEAN"; then
+    if [[ "$MODE" == "command" ]]; then
+      echo "Commande refusee en mode strict: $RISK_LEVEL - $RISK_REASON." >&2
+    else
+      print_explained_command "$CMD_CLEAN"
+      printf '\nMode strict : commande refusee.\n' >&2
+    fi
+    exit 2
+  fi
+
+  case "$MODE" in
+    command)
+      printf '%s\n' "$CMD_CLEAN"
       ;;
-    -c|--config)
-      configure_provider
+    explain)
+      print_explained_command "$CMD_CLEAN"
       ;;
-    --)
-      shift
-      PROMPT="$*"
-      break
-      ;;
-    *)
-      # On arrête de parser les flags et on prend tout le reste comme prompt
-      PROMPT="$*"
-      break 
+    execute)
+      execute_with_confirmation
       ;;
   esac
-done
-
-if [[ -z "$PROMPT" && -z "$PIPE_CONTENT" ]]; then
-  echo "Usage : ia [-x|--run] \"ta question\"" >&2
-  exit 1
-fi
-
-# ================= Context Injection =================
-# Pour aider le petit modèle (Phi), on injecte le contexte DANS le prompt utilisateur
-# car le System Prompt est figé dans le Modelfile.
-
-OS_INFO="Inconnu"
-[[ -f /etc/os-release ]] && OS_INFO=$(grep -E '^(PRETTY_NAME|NAME)=' /etc/os-release | head -1 | cut -d= -f2 | tr -d '"')
-USER_ID=$(id -u)
-
-FULL_PROMPT="[CONTEXT: OS=$OS_INFO, UID=$USER_ID (0=root)] Request: $PROMPT"
-
-if [[ -n "$PIPE_CONTENT" ]]; then
-  FULL_PROMPT="${FULL_PROMPT}"$'\n\n'"--- INPUT DATA ---"$'\n'"${PIPE_CONTENT}"
-fi
-
-# ================= Appel API Ollama =================
-# Note: On utilise 'generate' (pas 'chat') car on veut du raw completion sur notre modèle custom
-# "stream": false est crucial pour avoir un JSON valide à la fin
-
-# Fonction spinner pour faire patienter
-spinner() {
-  local pid=$1
-  local delay=0.1
-  local spinstr='|/-\'
-  while kill -0 "$pid" >/dev/null 2>&1; do
-    local temp=${spinstr#?}
-    printf " [%c]  " "$spinstr"
-    spinstr=$temp${spinstr%"$temp"}
-    sleep "$delay"
-    printf "\b\b\b\b\b\b"
-  done
-  printf "    \b\b\b\b"
 }
 
-if [[ "$PROVIDER" == "openrouter" ]]; then
-  if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
-    echo "❌ Erreur : clé API OpenRouter non configurée." >&2
-    echo "   Lancez 'ia --config' pour la configurer." >&2
-    exit 1
-  fi
-  
-  SYSTEM_PROMPT="Tu es ia-sysadmin, un assistant Linux local sobre et fiable.
-
-FORMAT STRICT :
-1. UNE SEULE commande Bash exécutable, sur une seule ligne.
-2. Aucun markdown, aucune explication, aucun commentaire #.
-3. Chaîne plusieurs opérations avec && ou | si nécessaire.
-
-RÈGLES :
-- Privilégie les commandes simples, lisibles et réversibles.
-- Pour RAM/CPU/disque, utilise free, df, top, ps.
-- Si une correction est demandée, donne d'abord la commande de diagnostic.
-- N'invente pas d'information système.
-- Ne génère jamais rm -rf, dd of=, mkfs, chmod -R 777, chown -R sans avertissement.
-- Pour une action destructive, donne la commande de vérification plutôt que la commande finale.
-- Si tu n'es pas sûr, donne une commande de diagnostic neutre."
-
-  OPENROUTER_MODELS=(
-    "mistralai/mistral-small-3.1-24b-instruct:free"
-    "meta-llama/llama-3.3-70b-instruct:free"
-    "qwen/qwen3-next-80b-a3b-instruct:free"
-    "minimax/minimax-m2.5:free"
-    "nousresearch/hermes-3-llama-3.1-405b:free"
-    "google/gemma-3-12b-it:free"
-    "nvidia/nemotron-3-super-120b-a12b"
-    "z-ai/glm-4.5-air:free"
-    "openai/gpt-oss-20b:free"
-    "qwen/qwen3-4b:free"
-    "google/gemma-3-4b-it:free"
-    "nvidia/nemotron-3-nano-30b-a3b:free"
-    "nvidia/nemotron-nano-9b-v2:free"
-    "meta-llama/llama-3.2-3b-instruct:free"
-    "google/gemma-3n-e4b-it:free"
-    "google/gemma-3n-e2b-it:free"
-    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
-  )
-
-  MODELS_JSON=$(printf '%s\n' "${OPENROUTER_MODELS[@]}" | jq -R . | jq -s .)
-
-  PAYLOAD=$(jq -n \
-    --argjson models "$MODELS_JSON" \
-    --arg system_prompt "$SYSTEM_PROMPT" \
-    --arg user_prompt "$FULL_PROMPT" \
-    '{
-      models: $models,
-      messages: [
-        {role: "system", content: $system_prompt},
-        {role: "user", content: $user_prompt}
-      ],
-      temperature: 0.1
-    }')
-  
-  OR_API_URL="https://openrouter.ai/api/v1/chat/completions"
-  
-  RESPONSE_FILE=$(mktemp -t ia-cloud-response.XXXXXX.json)
-  (curl --silent --show-error --fail-with-body --max-time 30 \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $OPENROUTER_API_KEY" \
-    -H "HTTP-Referer: https://github.com/neosoda/ia-portable" \
-    -H "X-Title: IA Portable" \
-    -d "$PAYLOAD" \
-    "$OR_API_URL" > "$RESPONSE_FILE") &
-  PID=$!
-  spinner $PID
-  if ! wait $PID; then
-    printf '\n❌ Erreur : appel API OpenRouter échoué.\n' >&2
-    cat "$RESPONSE_FILE" >&2
-    exit 1
-  fi
-  
-  RESPONSE=$(jq -r '.choices[0].message.content // empty' "$RESPONSE_FILE")
-  API_ERROR=$(jq -r '.error.message // empty' "$RESPONSE_FILE")
-
-else
-  PAYLOAD=$(jq -n \
-    --arg model "$MODEL" \
-    --arg prompt "$FULL_PROMPT" \
-    '{
-      model: $model,
-      prompt: $prompt,
-      stream: false,
-      options: {
-        temperature: 0.1
-      }
-    }')
-
-  # Check si Ollama répond
-  if ! curl --silent --show-error --fail --max-time 5 -o /dev/null "${API_URL%/api/generate}"; then
-    echo "❌ Erreur : Ollama n'est pas accessible sur localhost:11434." >&2
-    exit 1
-  fi
-
-  if ! ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -Fq "$MODEL"; then
-    echo "❌ Erreur : modèle '$MODEL' introuvable dans Ollama." >&2
-    echo "   Lance : ollama pull $MODEL" >&2
-    exit 1
-  fi
-
-  # Appel silencieux en background
-  RESPONSE_FILE=$(mktemp -t ia-local-response.XXXXXX.json)
-  (curl --silent --show-error --fail-with-body --max-time 30 \
-    -H "Content-Type: application/json" \
-    -d "$PAYLOAD" \
-    "$API_URL" > "$RESPONSE_FILE") &
-  PID=$!
-  spinner $PID
-  if ! wait $PID; then
-    printf '\n❌ Erreur : appel API Ollama échoué.\n' >&2
-    exit 1
-  fi
-
-  RESPONSE=$(jq -r '.response // empty' "$RESPONSE_FILE")
-  API_ERROR=$(jq -r '.error // empty' "$RESPONSE_FILE")
-fi
-
-if [[ -n "$API_ERROR" ]]; then
-  echo "❌ Erreur Ollama : $API_ERROR" >&2
-  exit 1
-fi
-
-if [[ -z "$RESPONSE" || "$RESPONSE" == "null" ]]; then
-  echo "❌ Erreur : L'IA n'a rien renvoyé." >&2
-  exit 1
-fi
-
-# Nettoyage du markdown résiduel dans la réponse
-CMD_CLEAN=$(echo "$RESPONSE" | sed 's/```bash//g;s/```//g' | grep -v '^[[:space:]]*$' | head -1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-
-if [[ -z "$CMD_CLEAN" ]]; then
-  echo "❌ Erreur : commande vide après nettoyage de la réponse IA." >&2
-  exit 1
-fi
-
-# ── Validation post-nettoyage ────────────────────────────────────────────────
-if ! validate_command_syntax "$CMD_CLEAN"; then
-  exit 1
-fi
-
-# ================= Mode Interactif =================
-if [[ "$RUN_MODE" == "true" ]]; then
-  echo -e "\n💻 \033[1;36mCommande proposée :\033[0m"
-  echo -e "   $CMD_CLEAN"
-
-  if is_dangerous_command "$CMD_CLEAN"; then
-    echo -e "\n\033[1;31m⚠️  COMMANDE POTENTIELLEMENT DESTRUCTIVE\033[0m"
-    echo -e "\033[1;31m   Vérifiez attentivement avant de confirmer.\033[0m"
-    read -rp "⚡ Exécuter ? [OUI/N] (tapez OUI en majuscules pour confirmer) " confirm
-    if [[ "$confirm" == "OUI" ]]; then
-      echo -e "\n🚀 Exécution..."
-      bash -c "$CMD_CLEAN"
-      log_execution "executed"
-    else
-      echo "🚫 Annulé."
-      log_execution "cancelled"
-    fi
-  else
-    echo ""
-    read -rp "⚡ Exécuter ? [o/N] " confirm
-    if [[ "$confirm" =~ ^[oO]([uU][iI])?$ ]]; then
-      echo -e "\n🚀 Exécution..."
-      bash -c "$CMD_CLEAN"
-      log_execution "executed"
-    else
-      echo "🚫 Annulé."
-      log_execution "cancelled"
-    fi
-  fi
-else
-  echo "$CMD_CLEAN"
-fi
+main "$@"

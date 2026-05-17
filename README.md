@@ -1,33 +1,151 @@
-# IA Shell Assistant — Portable Edition (Ollama & OpenRouter)
+# IA Portable
 
-Assistant `ia` en ligne de commande pour générer des commandes Bash fiables en langage naturel. Supporte **Ollama** (100% local) et **OpenRouter** (Cloud performant avec modèles fallback).
+Assistant terminal minimal pour transformer une demande en langage naturel en commande Bash exploitable.
 
-Objectif : générer des commandes Bash fiables, sans dépendance lourde, pour tous les environnements (sensibles ou connectés).
+Le produit tient dans une idée simple : `ia` ne discute pas. Par défaut, il imprime uniquement la commande.
+
+```bash
+ia "trouve les fichiers log de plus de 30 jours"
+find . -type f -name "*.log" -mtime +30
+```
 
 ---
 
-## Ce que fait ce projet
+## MVP
 
-- **Multifournisseur** : 
-  - **Local (Ollama)** : aucune donnée n'est envoyée en dehors de la machine. Choix de modèle (Qwen2.5 0.5B ou 1.5B).
-  - **Cloud (OpenRouter)** : réponses ultra-rapides, fallback sur une liste de 17 modèles (Mistral, Llama 3.3, Qwen, Gemma 3, etc.) pour garantir la disponibilité gratuite ou payante.
-- **Entrée flexible** : prompt direct OU pipe stdin (limite 2000 caractères).
-- **Mode interactif** (`-x`) : affichage + confirmation avant exécution.
-- **Sécurité** :
-  - Validation syntaxe Bash (`bash -n`) avant présentation.
-  - Détection des commandes destructives → confirmation renforcée (`OUI` en majuscules).
-  - Journal d'audit dans `~/.ia_history` (timestamp + prompt + commande + statut).
-- **Injection de contexte** : OS + UID dans le prompt pour aider le modèle.
+```bash
+ia "ma demande"                         # donne uniquement la commande
+ia -e "ma demande"                      # commande + explication + risque
+ia -x "ma demande"                      # propose + confirme + execute
+ia -s "ma demande"                      # mode strict / securite renforcee
+ia --provider ollama "ma demande"       # force Ollama pour cet appel
+ia --provider openrouter "ma demande"   # force OpenRouter pour cet appel
+cat fichier.log | ia "trouve l'erreur"  # utilise stdin comme contexte
+```
+
+`-e` peut aussi expliquer une commande existante :
+
+```bash
+ia -e 'find . -type f -mtime +30 -delete'
+```
+
+Sortie :
+
+```text
+Commande proposee :
+
+find . -type f -mtime +30 -delete
+
+Explication :
+supprime les fichiers correspondant aux criteres de plus de 30 jours dans le dossier courant.
+
+Risque :
+Moyen - modification de fichiers, services, paquets ou privileges.
+```
+
+---
+
+## Modes
+
+### Commande seule
+
+```bash
+ia "liste les connexions SSH actives"
+```
+
+Sortie attendue : une seule ligne, sans markdown ni explication.
+
+```bash
+ss -tnp | grep ':22'
+```
+
+### Explication
+
+```bash
+ia -e "supprime les logs nginx de plus de 30 jours"
+```
+
+Affiche :
+
+- la commande proposee ;
+- une explication courte ;
+- un niveau de risque.
+
+### Execution avec confirmation
+
+```bash
+ia -x "affiche les fichiers .log de plus de 100 Mo"
+```
+
+`ia` affiche la commande, l'explication et le risque, puis demande :
+
+```text
+Executer ? [y/N]
+```
+
+L'execution est journalisee dans `~/.ia_history`.
+
+### Mode strict
+
+```bash
+ia -s "nettoie les vieux logs"
+ia -s -x "supprime les fichiers temporaires"
+```
+
+Le mode strict pousse le modele vers des commandes de diagnostic et refuse les commandes risquées par defaut :
+
+- suppression (`rm`, `find ... -delete`) ;
+- privileges (`sudo`) ;
+- permissions/proprietaires (`chmod`, `chown`) ;
+- redirections d'ecriture ;
+- commandes critiques (`mkfs`, `dd of=/dev/...`, `reboot`, etc.).
+
+---
+
+## Providers
+
+### Ollama
+
+Ollama est le provider local par defaut.
+
+```bash
+ia --provider ollama "combien de RAM libre ?"
+```
+
+Variables utiles :
+
+```bash
+export IA_LOCAL_API_URL="http://localhost:11434/api/generate"
+export IA_LOCAL_MODEL="ia-sysadmin"
+```
+
+### OpenRouter
+
+OpenRouter permet d'utiliser des modeles cloud avec fallback.
+
+```bash
+export OPENROUTER_API_KEY="..."
+ia --provider openrouter "diagnostique nginx"
+```
+
+Pour enregistrer le provider par defaut :
+
+```bash
+ia --config
+```
+
+La configuration est stockee dans `~/.ia_config`.
 
 ---
 
 ## Installation
 
-### Prérequis
+### Prerequis
 
 - Bash 4.x+
-- `curl` et `jq`
-- Sudo/root
+- `curl`
+- `jq`
+- `sudo` ou root pour l'installation globale
 
 ### Installation rapide
 
@@ -39,129 +157,61 @@ sudo bash install.sh
 
 L'installeur :
 
-1. Demande de choisir le fournisseur : **Ollama (Local)** ou **OpenRouter (Cloud)**.
-2. Installe `curl` + `jq` (apt/dnf/yum).
-3. Si **Ollama** est choisi :
-   - Télécharge et installe Ollama.
-   - Démarre le service Ollama.
-   - Télécharge le modèle et construit le modèle custom `ia-sysadmin`.
-4. Installe `ia` dans `/usr/local/bin`.
-5. Configure l'alias global et le fichier `~/.ia_config`.
-
-**Durée estimée :**
-- OpenRouter : < 30 secondes.
-- Qwen 0.5B (Local) : 3-5 minutes (340 MB).
-- Qwen 1.5B (Local) : 8-12 minutes (986 MB).
-
-### Choisir entre Qwen 0.5B et 1.5B
-
-| Aspect | Qwen 0.5B | Qwen 1.5B |
-|--------|-----------|-----------|
-| **Vitesse** | 1-2 sec | 5-10 sec |
-| **Taille** | 340 MB | 986 MB |
-| **RAM** | ~500 MB | ~2 GB |
-| **Qualité** | Bon pour Bash simple | Meilleur pour requêtes complexes |
-| **Cas d'usage** | Production, serveurs légers | Dev, analyses avancées |
-
-**Recommandation :** Choisir **0.5B** par défaut (rapide, léger). Passer à **1.5B** si vous avez besoin d'une meilleure compréhension.
-
-Si vous relancez l'installation avec un modèle différent, `ia-sysadmin` est automatiquement recréé avec la nouvelle base.
+1. demande le provider par defaut ;
+2. installe `curl` et `jq` ;
+3. installe Ollama si le mode local est choisi ;
+4. construit le modele local `ia-sysadmin` depuis `Modelfile` ;
+5. installe la commande `ia` dans `/usr/local/bin`.
 
 ---
 
-## Utilisation
+## Securite
 
-### Génération simple
+`ia` reste un assistant de terminal, pas un agent autonome.
+
+Garde-fous inclus :
+
+- sortie commande seule par defaut ;
+- validation syntaxique avec `bash -n` ;
+- classification de risque en `Faible`, `Moyen`, `Eleve` ou `Bloque` ;
+- refus des commandes critiques en execution ;
+- mode strict pour refuser les actions destructrices ;
+- historique local des executions dans `~/.ia_history`.
+
+Les garde-fous ne remplacent pas la relecture humaine. Avant `-x`, relisez toujours la commande proposee.
+
+---
+
+## Exemples
 
 ```bash
-ia "liste les connexions SSH actives"
 ia "combien de RAM libre ?"
-ia "affiche les 10 plus gros fichiers"
+free -h
 ```
-
-### Mode interactif (`-x`)
 
 ```bash
-ia -x "crée /backup et déplace les logs nginx dedans"
+ia "les 20 plus gros fichiers ici"
+find . -type f -printf '%s %p\n' | sort -nr | head -20
 ```
-
-Affiche la commande proposée, permet de relire, puis exécute ou annule.
-
-### Analyse via pipe
 
 ```bash
-tail -100 /var/log/syslog | ia "trouve l'erreur"
-cat script_legacy.sh | ia "explique ce script"
-journalctl -u nginx -n 50 | ia "résume les erreurs"
+tail -100 /var/log/syslog | ia "trouve les erreurs"
+grep -i error
 ```
+
+```bash
+ia -x "redemarre nginx"
+```
+
+```bash
+ia -s "supprime les logs de plus de 30 jours"
+```
+
+En mode strict, `ia` doit privilegier une commande de verification ou refuser la commande si elle reste destructive.
 
 ---
 
-## Configuration et Changement de Fournisseur
-
-À tout moment, vous pouvez changer de fournisseur (passer du Cloud au Local, ou inversement) en utilisant :
-
-```bash
-ia --config
-```
-
-Cette commande vous demandera :
-1. Le fournisseur (Ollama ou OpenRouter).
-2. Si vous choisissez OpenRouter, votre clé API.
-
-Les paramètres sont sauvegardés de manière sécurisée dans `~/.ia_config`.
-
-### Variables runtime (Ollama)
-
-```bash
-# URL API Ollama (défaut: http://localhost:11434/api/generate)
-export IA_LOCAL_API_URL="http://localhost:11434/api/generate"
-
-# Modèle utilisé (défaut: ia-sysadmin)
-export IA_LOCAL_MODEL="ia-sysadmin"
-```
-
-### Variables d'installation
-
-```bash
-# Modèle de base Ollama (défaut: qwen2.5:0.5b-instruct)
-# Si défini, bypasse le menu de sélection interactif
-export IA_LOCAL_BASE_MODEL="qwen2.5:0.5b-instruct"
-
-# Timeout au démarrage Ollama (défaut: 30 secondes)
-export IA_LOCAL_STARTUP_TIMEOUT_SECONDS="60"
-```
-
----
-
-## Sécurité et limites
-
-| Aspect | Détails |
-|--------|---------|
-| **Qualité** | Dépend du modèle local. Pour du hardware modeste, peut être imprécis sur des requêtes complexes. |
-| **Ressources** | ~1-2 Go RAM + CPU pendant l'inférence. Temps de réponse : 5-30 secondes selon le hardware. |
-| **Validation humaine** | Obligatoire — relire la commande avant exécution (`-x` ou manuel). |
-| **Commandes dangereuses** | `rm -rf`, `dd of=`, `mkfs`, `chmod -R 777`, `kill -9 1`, etc. → alerte rouge + confirmation `OUI`. |
-| **Syntaxe Bash** | Vérifiée (`bash -n`) avant présentation. |
-| **Audit** | `~/.ia_history` — timestamp, prompt, commande, statut (executed/cancelled). |
-
-### Limite connue : exécution de commandes LLM
-
-La commande générée est passée à `bash -c` après validation syntaxique. La détection des commandes dangereuses (`is_dangerous_command`) couvre les patterns les plus courants mais **ne peut pas couvrir tous les cas** : une commande syntaxiquement valide et hors-liste peut être destructive.
-
-**Toujours relire** la commande avant de confirmer, même en mode `-x`.
-
-### Recommandations
-
-1. **Toujours relire** avant d'exécuter.
-2. **Protéger `~/.ia_history`** si vos prompts contiennent des infos sensibles : `chmod 600 ~/.ia_history`.
-3. **Tester sur un lab** avant production.
-4. **Ollama doit être en ligne** — vérifier : `ollama list`.
-5. **Portabilité** : l'alias global est écrit dans `/etc/bash.bashrc` (Debian/Ubuntu). Sur Fedora/RHEL, ajouter manuellement dans `/etc/bashrc`.
-
----
-
-## Dépannage
+## Depannage
 
 ### Ollama n'est pas accessible
 
@@ -170,46 +220,28 @@ curl -s http://localhost:11434
 systemctl restart ollama
 ```
 
-### Le modèle `ia-sysadmin` n'existe pas
+### Le modele `ia-sysadmin` n'existe pas
 
 ```bash
 ollama list
 ollama create ia-sysadmin -f Modelfile
 ```
 
-### Changer de modèle après installation
-
-Relancez simplement `sudo bash install.sh`, choisissez le nouveau modèle. L'installeur détecte le changement et recrée `ia-sysadmin` automatiquement.
-
-### Réponse lente ou vide
-
-- Vérifier que le modèle est téléchargé : `ollama list`
-- Vérifier les ressources : `free -h`, `df -h`
-- Augmenter le timeout Ollama : `export IA_LOCAL_STARTUP_TIMEOUT_SECONDS=60`
-
----
-
-## Désinstallation
+### Changer de provider par defaut
 
 ```bash
-sudo rm -f /usr/local/bin/ia
-sudo sed -i '/alias ia=/d' /etc/bash.bashrc
-sudo rm -f /var/lib/ia/base_model
-
-# Supprimer les modèles Ollama (optionnel)
-ollama rm ia-sysadmin
-# rm ~/.ia_history
+ia --config
 ```
 
 ---
 
-## Structure du projet
+## Structure
 
 ```text
 .
-├── ia.sh              # Client principal (Ollama)
-├── install.sh         # Installeur
-├── Modelfile          # Définition du modèle custom ia-sysadmin
+├── ia.sh          # client CLI principal
+├── install.sh     # installeur
+├── Modelfile      # prompt du modele local Ollama
 ├── README.md
 ├── LICENSE
 └── .gitignore
@@ -217,50 +249,6 @@ ollama rm ia-sysadmin
 
 ---
 
-## Performances attendues
-
-| Opération | Durée |
-|-----------|-------|
-| Première inférence | 5-10 sec |
-| Inférences suivantes | 2-5 sec |
-| Validation syntaxe | < 1 sec |
-| Mode `-x` (avec confirmation) | 2-5 sec + temps utilisateur |
-
----
-
-## Exemples avancés
-
-```bash
-# Diagnostic nginx
-ia "diagnose nginx"
-# → systemctl status nginx
-
-# Processus le plus gourmand
-ps aux | ia "le processus qui utilise le plus de CPU"
-# → ps aux | sort -k3 -nr | head -1
-
-# Suppression contrôlée avec confirmation
-ia -x "supprime tous les fichiers .log dans /tmp de plus de 30 jours"
-# → find /tmp -name "*.log" -mtime +30 -delete
-# Alerte : COMMANDE POTENTIELLEMENT DESTRUCTIVE → OUI requis
-```
-
----
-
 ## Licence
 
-MIT — Libre d'utilisation, modification et distribution.
-
-**Auteur :** Neosoda
-
----
-
-## Ressources
-
-- [Ollama Documentation](https://github.com/ollama/ollama)
-- [Qwen2.5-Coder Model](https://huggingface.co/Qwen/Qwen2.5-Coder)
-- [Bash Security Guidelines](https://mywiki.wooledge.org/)
-
----
-
-**Dernière mise à jour :** 2026-04-30
+MIT
